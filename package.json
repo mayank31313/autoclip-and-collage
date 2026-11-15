@@ -12,7 +12,7 @@
     "format:check": "prettier --check .",
     "test": "vitest run",
     "worker": "tsx --env-file=.env worker/index.ts",
-    "db:generate": "drizzle-kit generate",
+    "db:generate": "node --env-file=.env node_modules/drizzle-kit/bin.cjs generate",
     "db:migrate": "node --env-file=.env node_modules/drizzle-kit/bin.cjs migrate",
     "create-key": "tsx --env-file=.env scripts/create-api-key.ts"
   },
