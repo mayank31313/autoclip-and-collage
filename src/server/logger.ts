@@ -1,4 +1,3 @@
-import "server-only";
 import pino from "pino";
 
 // Single allowed process.env read outside config.ts: config validation can fail

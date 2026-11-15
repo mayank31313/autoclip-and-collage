@@ -1,4 +1,3 @@
-import "server-only";
 import { z } from "zod";
 
 const emptyToUndefined = (v: unknown) => (v === "" ? undefined : v);
