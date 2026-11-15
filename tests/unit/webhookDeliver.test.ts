@@ -32,6 +32,7 @@ function deps(responses: Array<Response | Error>): WebhookDeps & {
     secret,
     maxAttempts: 3,
     baseDelayMs: 100,
+    timeoutMs: 5000,
     nowSec: () => 1000,
     assertUrl: async () => undefined,
     record: async (r) => {
@@ -81,6 +82,42 @@ describe("deliverWebhook", () => {
     ]);
     expect(await deliverWebhook({ url: "https://hook.test/x", event }, d)).toBe(false);
     expect(d.records).toHaveLength(3);
+  });
+  it("returns true after a 2xx even if recording throws, without retrying", async () => {
+    const d = deps([new Response("ok", { status: 200 })]);
+    d.record = async () => {
+      throw new Error("db down");
+    };
+    expect(await deliverWebhook({ url: "https://hook.test/x", event }, d)).toBe(true);
+    expect(d.fetchMock).toHaveBeenCalledTimes(1);
+  });
+  it("never rejects when recording throws on every failed attempt", async () => {
+    const d = deps([
+      new Response("", { status: 500 }),
+      new Error("boom"),
+      new Response("", { status: 500 }),
+    ]);
+    d.record = async () => {
+      throw new Error("db down");
+    };
+    await expect(deliverWebhook({ url: "https://hook.test/x", event }, d)).resolves.toBe(false);
+    expect(d.fetchMock).toHaveBeenCalledTimes(3);
+  });
+  it("passes an abort signal and retries when the request times out", async () => {
+    const timeout = new DOMException("timed out", "TimeoutError");
+    const d = deps([timeout, new Response("ok", { status: 200 })]);
+    expect(await deliverWebhook({ url: "https://hook.test/x", event }, d)).toBe(true);
+    for (const call of d.fetchMock.mock.calls as unknown as Array<[string, RequestInit]>) {
+      expect(call[1].signal).toBeInstanceOf(AbortSignal);
+    }
+    expect(d.records[0]).toEqual(expect.objectContaining({ attempt: 1, error: "timed out" }));
+  });
+  it("cancels the response body to release the socket", async () => {
+    const res = new Response("ignored", { status: 500 });
+    const cancel = vi.spyOn(res.body!, "cancel");
+    const d = deps([res, new Response("ok", { status: 200 })]);
+    await deliverWebhook({ url: "https://hook.test/x", event }, d);
+    expect(cancel).toHaveBeenCalled();
   });
   it("does not send when the URL fails the SSRF check", async () => {
     const d = deps([]);

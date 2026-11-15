@@ -1,5 +1,6 @@
 import type { JobStatus } from "@/lib/schemas/job";
 import { getConfig } from "@/server/config";
+import { logger } from "@/server/logger";
 import { webhookDeliveriesRepo } from "@/server/db/repositories/webhookDeliveries";
 import { signPayload } from "@/server/security/hmac";
 import { assertPublicUrl } from "@/server/security/ssrf";
@@ -18,6 +19,7 @@ export interface WebhookDeps {
   secret: string;
   maxAttempts: number;
   baseDelayMs: number;
+  timeoutMs: number;
   nowSec: () => number;
   assertUrl: (url: string) => Promise<unknown>;
   record: (a: {
@@ -37,10 +39,33 @@ export function defaultWebhookDeps(): WebhookDeps {
     secret: getConfig().webhookSecret,
     maxAttempts: 5,
     baseDelayMs: 1000,
+    timeoutMs: 10_000,
     nowSec: () => Math.floor(Date.now() / 1000),
     assertUrl: (url) => assertPublicUrl(url),
     record: (a) => webhookDeliveriesRepo.record(a),
   };
+}
+
+type Attempt = Parameters<WebhookDeps["record"]>[0];
+
+/** Audit trail is best-effort: a DB failure must neither trigger a retry nor escape the delivery. */
+async function recordSafely(deps: WebhookDeps, attempt: Attempt): Promise<void> {
+  try {
+    await deps.record(attempt);
+  } catch (err) {
+    logger.warn(
+      { err, eventId: attempt.eventId, jobId: attempt.jobId, attempt: attempt.attempt },
+      "failed to record webhook delivery attempt",
+    );
+  }
+}
+
+async function releaseBody(res: Response): Promise<void> {
+  try {
+    await res.body?.cancel();
+  } catch {
+    // body already consumed or errored; nothing left to release
+  }
 }
 
 /** Returns true on a 2xx response. Never throws: callers must not fail a job because a receiver is down. */
@@ -57,10 +82,13 @@ export async function deliverWebhook(
   for (let attempt = 1; attempt <= deps.maxAttempts; attempt++) {
     const timestamp = deps.nowSec();
     const rec = { eventId: args.event.eventId, jobId: args.event.jobId, url: args.url, attempt };
+    let res: Response | undefined;
+    let error: string | undefined;
     try {
-      const res = await deps.fetch(args.url, {
+      res = await deps.fetch(args.url, {
         method: "POST",
         redirect: "manual",
+        signal: AbortSignal.timeout(deps.timeoutMs),
         headers: {
           "Content-Type": "application/json",
           "X-Timestamp": String(timestamp),
@@ -68,11 +96,12 @@ export async function deliverWebhook(
         },
         body,
       });
-      await deps.record({ ...rec, statusCode: res.status });
-      if (res.ok) return true;
     } catch (err) {
-      await deps.record({ ...rec, error: err instanceof Error ? err.message : "request failed" });
+      error = err instanceof Error ? err.message : "request failed";
     }
+    if (res) await releaseBody(res);
+    await recordSafely(deps, res ? { ...rec, statusCode: res.status } : { ...rec, error });
+    if (res?.ok) return true;
     if (attempt < deps.maxAttempts) await deps.sleep(deps.baseDelayMs * 2 ** (attempt - 1));
   }
   return false;
