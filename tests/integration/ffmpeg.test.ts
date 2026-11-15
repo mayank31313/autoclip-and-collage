@@ -1,8 +1,8 @@
 import { mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
-import { runFfmpeg } from "@/server/renderers/ffmpeg";
+import { describe, expect, it, vi } from "vitest";
+import { escapeFilterGraphValue, escapeFilterText, runFfmpeg } from "@/server/renderers/ffmpeg";
 import { probeMedia } from "@/server/renderers/ffprobe";
 
 describe("ffmpeg integration", () => {
@@ -40,7 +40,7 @@ describe("ffmpeg integration", () => {
       runFfmpeg(["-f", "lavfi", "-i", "testsrc=duration=600", "-f", "null", "-"], {
         timeoutMs: 200,
       }),
-    ).rejects.toThrow();
+    ).rejects.toThrow(/timed out/);
   });
   it("rejects immediately when the signal is already aborted", async () => {
     await expect(
@@ -49,5 +49,51 @@ describe("ffmpeg integration", () => {
         signal: AbortSignal.abort(),
       }),
     ).rejects.toThrow(/aborted/);
+  });
+
+  it("rejects when aborted during a run", async () => {
+    const ac = new AbortController();
+    setTimeout(() => ac.abort(), 300);
+    await expect(
+      runFfmpeg(["-f", "lavfi", "-i", "testsrc=duration=600", "-f", "null", "-"], {
+        timeoutMs: 30_000,
+        signal: ac.signal,
+      }),
+    ).rejects.toThrow(/aborted/);
+  });
+  it("removes the abort listener after a successful run", async () => {
+    const ac = new AbortController();
+    const remove = vi.spyOn(ac.signal, "removeEventListener");
+    await runFfmpeg(["-f", "lavfi", "-i", "testsrc=duration=0.2:rate=5", "-f", "null", "-"], {
+      timeoutMs: 30_000,
+      signal: ac.signal,
+    });
+    expect(remove).toHaveBeenCalledWith("abort", expect.any(Function));
+    expect(() => ac.abort()).not.toThrow();
+  });
+
+  describe("filter text escaping", () => {
+    const hostile = "x:bogus=1,volume=0;[evil]'";
+    const run = (escaped: string) =>
+      runFfmpeg(
+        [
+          "-f",
+          "lavfi",
+          "-i",
+          "testsrc=duration=0.2:rate=5",
+          "-vf",
+          `metadata=mode=add:key=title:value=${escaped}`,
+          "-f",
+          "null",
+          "-",
+        ],
+        { timeoutMs: 10_000 },
+      );
+    it("single-level escaping lets text inject options", async () => {
+      await expect(run(escapeFilterText(hostile))).rejects.toThrow(/ffmpeg exited/);
+    });
+    it("two-level escaping keeps hostile text as a plain value", async () => {
+      await expect(run(escapeFilterGraphValue(hostile))).resolves.toBeUndefined();
+    });
   });
 });

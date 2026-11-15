@@ -46,7 +46,24 @@ export function runFfmpeg(
   });
 }
 
-/** Escapes text for use as a filter option value (drawtext, subtitles paths, etc.). */
+const FILTER_SPECIAL_CHARS = /[\\:'",;[\]=]/g;
+
+/**
+ * Level-1 escape: makes text a single option value (`key=<value>`) for a filter's own
+ * option parser. This alone is NOT safe inside a `-vf`/`-filter_complex` string, because
+ * FFmpeg unescapes once more at the filtergraph level before the option parser runs.
+ * Use `escapeFilterGraphValue` when embedding user text in a filtergraph string.
+ */
 export function escapeFilterText(text: string): string {
-  return text.replace(/[\\:'",;[\]=]/g, (c) => `\\${c}`);
+  return text.replace(FILTER_SPECIAL_CHARS, (c) => `\\${c}`);
+}
+
+/**
+ * Two-level escape (option value, then filtergraph): the form callers must use when
+ * dropping user text into a `-vf`/`-filter_complex` string, so it cannot inject filters
+ * or options. TODO(milestone-3): drawtext also expands `%{...}`; the caller must handle that
+ * separately (e.g. `expansion=none`).
+ */
+export function escapeFilterGraphValue(text: string): string {
+  return escapeFilterText(escapeFilterText(text));
 }

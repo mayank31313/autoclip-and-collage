@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { escapeFilterText } from "@/server/renderers/ffmpeg";
+import { escapeFilterGraphValue, escapeFilterText } from "@/server/renderers/ffmpeg";
 import { parseProbe } from "@/server/renderers/ffprobe";
 
 describe("escapeFilterText", () => {
@@ -8,6 +8,17 @@ describe("escapeFilterText", () => {
   });
   it("leaves plain text alone", () => {
     expect(escapeFilterText("Hello world")).toBe("Hello world");
+  });
+});
+
+describe("escapeFilterGraphValue", () => {
+  it("applies both escaping levels", () => {
+    expect(escapeFilterGraphValue("a:b'c,d;e[f]g\\h")).toBe(
+      "a\\\\\\:b\\\\\\'c\\\\\\,d\\\\\\;e\\\\\\[f\\\\\\]g\\\\\\\\h",
+    );
+  });
+  it("leaves plain text alone", () => {
+    expect(escapeFilterGraphValue("Hello world")).toBe("Hello world");
   });
 });
 
