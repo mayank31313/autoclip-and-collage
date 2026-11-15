@@ -1,0 +1,66 @@
+import "server-only";
+import { z } from "zod";
+
+const emptyToUndefined = (v: unknown) => (v === "" ? undefined : v);
+const optionalUrl = z.preprocess(emptyToUndefined, z.string().url().optional());
+
+const EnvSchema = z.object({
+  DATABASE_URL: z.string().min(1),
+  REDIS_URL: z.string().min(1),
+  S3_ENDPOINT: z.string().url(),
+  S3_REGION: z.string().min(1),
+  S3_ACCESS_KEY: z.string().min(1),
+  S3_SECRET_KEY: z.string().min(1),
+  S3_BUCKET: z.string().min(1),
+  API_KEY_PEPPER: z.string().min(16),
+  WEBHOOK_SIGNING_SECRET: z.string().min(16),
+  OLLAMA_URL: optionalUrl,
+  ML_SIDECAR_URL: optionalUrl,
+  FFMPEG_HWACCEL: z.enum(["none", "nvenc", "qsv"]).default("none"),
+  WORKER_CONCURRENCY_RENDER: z.coerce.number().int().positive().default(2),
+  WORKER_CONCURRENCY_ANALYZE: z.coerce.number().int().positive().default(1),
+  MAX_UPLOAD_MB: z.coerce.number().int().positive().default(2048),
+  PRESIGN_TTL_SEC: z.coerce.number().int().positive().default(900),
+  WEBHOOK_TOLERANCE_SEC: z.coerce.number().int().positive().default(300),
+  LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace"]).default("info"),
+});
+
+export function loadConfig(env: Record<string, string | undefined>) {
+  const parsed = EnvSchema.safeParse(env);
+  if (!parsed.success) {
+    const names = [...new Set(parsed.error.issues.map((i) => i.path.join(".")))].join(", ");
+    throw new Error(`Invalid environment: ${names}`);
+  }
+  const e = parsed.data;
+  return {
+    databaseUrl: e.DATABASE_URL,
+    redisUrl: e.REDIS_URL,
+    s3: {
+      endpoint: e.S3_ENDPOINT,
+      region: e.S3_REGION,
+      accessKey: e.S3_ACCESS_KEY,
+      secretKey: e.S3_SECRET_KEY,
+      bucket: e.S3_BUCKET,
+    },
+    apiKeyPepper: e.API_KEY_PEPPER,
+    webhookSecret: e.WEBHOOK_SIGNING_SECRET,
+    ollamaUrl: e.OLLAMA_URL,
+    mlSidecarUrl: e.ML_SIDECAR_URL,
+    ffmpegHwaccel: e.FFMPEG_HWACCEL,
+    workerConcurrencyRender: e.WORKER_CONCURRENCY_RENDER,
+    workerConcurrencyAnalyze: e.WORKER_CONCURRENCY_ANALYZE,
+    maxUploadBytes: e.MAX_UPLOAD_MB * 1024 * 1024,
+    presignTtlSec: e.PRESIGN_TTL_SEC,
+    webhookToleranceSec: e.WEBHOOK_TOLERANCE_SEC,
+    logLevel: e.LOG_LEVEL,
+  };
+}
+
+export type Config = ReturnType<typeof loadConfig>;
+
+let cached: Config | undefined;
+/** The only place `process.env` is read (apart from the logger's LOG_LEVEL). */
+export function getConfig(): Config {
+  cached ??= loadConfig(process.env);
+  return cached;
+}
