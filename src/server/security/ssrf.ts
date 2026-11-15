@@ -29,19 +29,36 @@ function isPrivateV4(ip: string): boolean {
   );
 }
 
-function isPrivateV6(ip: string): boolean {
-  if (ip === "::" || ip === "::1") return true;
-  const dotted = ip.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
-  if (dotted) return isPrivateV4(dotted[1]);
-  const hex = ip.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
-  if (hex) {
-    const hi = parseInt(hex[1], 16);
-    const lo = parseInt(hex[2], 16);
-    return isPrivateV4(`${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`);
+/** Expands a valid IPv6 literal (`::` compression, dotted IPv4 tail) into eight 16-bit groups. */
+function expandV6(ip: string): number[] {
+  let text = ip.split("%")[0]; // drop zone id
+  const tail = text.match(/^(.*:)(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
+  if (tail) {
+    const [, head, a, b, c, d] = tail;
+    text = `${head}${((+a << 8) | +b).toString(16)}:${((+c << 8) | +d).toString(16)}`;
   }
-  return /^f[cd]/.test(ip) || /^fe[89ab]/.test(ip);
+  const [left, right] = text.split("::");
+  const l = left ? left.split(":") : [];
+  const r = right === undefined ? [] : right ? right.split(":") : [];
+  const fill = right === undefined ? 0 : 8 - l.length - r.length;
+  return [...l, ...Array<string>(fill).fill("0"), ...r].map((g) => parseInt(g, 16));
 }
 
+function embeddedV4(hi: number, lo: number): string {
+  return `${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`;
+}
+
+function isPrivateV6(ip: string): boolean {
+  const g = expandV6(ip);
+  if (g.slice(0, 5).every((x) => x === 0) && g[5] === 0xffff)
+    return isPrivateV4(embeddedV4(g[6], g[7]));
+  if (g.slice(0, 6).every((x) => x === 0)) return true; // ::, ::1 and IPv4-compatible
+  const nat64 = g[0] === 0x64 && g[1] === 0xff9b && g.slice(2, 6).every((x) => x === 0);
+  if (nat64) return isPrivateV4(embeddedV4(g[6], g[7]));
+  if (g[0] === 0x2002) return isPrivateV4(embeddedV4(g[1], g[2]));
+  if (g[0] === 0x2001 && g[1] === 0) return true; // Teredo
+  return (g[0] & 0xfe00) === 0xfc00 || (g[0] & 0xffc0) === 0xfe80 || (g[0] & 0xff00) === 0xff00;
+}
 const blocked = (msg: string) => new AppError("SSRF_BLOCKED", 400, msg);
 
 export async function assertPublicUrl(

@@ -45,6 +45,32 @@ describe("hmac", () => {
       }),
     ).toBe(false);
   });
+  it("fails closed on a NaN timestamp even with a matching signature", () => {
+    const sig = signPayload({ secret, body, timestamp: NaN });
+    expect(
+      verifySignature({
+        secret,
+        body,
+        signature: sig,
+        timestamp: NaN,
+        toleranceSec: 300,
+        nowSec: 1000,
+      }),
+    ).toBe(false);
+  });
+  it("fails closed on a NaN tolerance", () => {
+    const sig = signPayload({ secret, body, timestamp: 1000 });
+    expect(
+      verifySignature({
+        secret,
+        body,
+        signature: sig,
+        timestamp: 1000,
+        toleranceSec: NaN,
+        nowSec: 1000,
+      }),
+    ).toBe(false);
+  });
   it("rejects malformed signatures without throwing", () => {
     expect(
       verifySignature({

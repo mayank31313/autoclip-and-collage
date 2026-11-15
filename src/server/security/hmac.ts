@@ -17,7 +17,9 @@ export function verifySignature(args: {
   nowSec?: number;
 }): boolean {
   const now = args.nowSec ?? Math.floor(Date.now() / 1000);
-  if (Math.abs(now - args.timestamp) > args.toleranceSec) return false;
+  // Fail closed on NaN/Infinity: a bare `>` comparison would let NaN skip the check.
+  if (!Number.isFinite(args.timestamp) || !Number.isFinite(args.toleranceSec)) return false;
+  if (!(Math.abs(now - args.timestamp) <= args.toleranceSec)) return false;
   const expected = Buffer.from(signPayload(args));
   const actual = Buffer.from(args.signature);
   return expected.length === actual.length && timingSafeEqual(expected, actual);
