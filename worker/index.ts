@@ -3,14 +3,14 @@ import type { JobData } from "@/lib/schemas/job";
 import { getConfig } from "@/server/config";
 import { logger } from "@/server/logger";
 import { QUEUE_NAMES, getRedis, type QueueName } from "@/server/queue/queues";
-import { buildCollageProcessor } from "./processors/buildCollage";
+import { collageDispatcher } from "./processors/collageQueue";
 import { placeholderProcessor } from "./processors/placeholder";
 
 // TODO(milestone-1/video): replace the video placeholders with real processors.
 export const processors: Record<QueueName, (job: Job<JobData>) => Promise<void>> = {
   "video-analyze": placeholderProcessor,
   "video-render": placeholderProcessor,
-  collage: buildCollageProcessor,
+  collage: collageDispatcher,
 };
 
 function concurrencyFor(name: QueueName): number {

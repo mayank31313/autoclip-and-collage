@@ -13,7 +13,7 @@ export interface CollageResultIo {
   expiresInSec: number;
 }
 
-function defaultIo(): CollageResultIo {
+export function defaultIo(): CollageResultIo {
   return {
     getAsset: (id, ownerId) => assetsRepo.getForOwner(id, ownerId),
     presign: presignGet,
@@ -21,7 +21,7 @@ function defaultIo(): CollageResultIo {
   };
 }
 
-function unavailable(): AppError {
+export function unavailable(): AppError {
   return new AppError("INTERNAL", 500, "Job result is unavailable");
 }
 

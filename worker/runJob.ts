@@ -1,9 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { UnrecoverableError } from "bullmq";
 import type { JobStatus } from "@/lib/schemas/job";
+import { POLAROID_JOB_TYPE } from "@/lib/schemas/polaroid";
 import { jobsRepo, type JobRow, type TransitionPatch } from "@/server/db/repositories/jobs";
 import { AppError } from "@/server/http/errors";
 import { COLLAGE_JOB_TYPE, resolveCollageResult } from "@/server/jobs/collageResult";
+import { resolvePolaroidResult } from "@/server/jobs/polaroidResult";
 import { logger } from "@/server/logger";
 import { deliverWebhook } from "@/server/webhooks/deliver";
 
@@ -37,10 +39,17 @@ const defaultDeps: RunJobDeps = {
 
 /** Signs URLs at delivery time; a result that cannot be resolved must not block the webhook. */
 async function resultUrlsFor(job: JobRow, status: JobStatus): Promise<string[]> {
-  if (status !== "succeeded" || job.type !== COLLAGE_JOB_TYPE) return [];
+  if (status !== "succeeded") return [];
   try {
-    const { output } = await resolveCollageResult(job);
-    return [output.downloadUrl];
+    if (job.type === COLLAGE_JOB_TYPE) {
+      const { output } = await resolveCollageResult(job);
+      return [output.downloadUrl];
+    }
+    if (job.type === POLAROID_JOB_TYPE) {
+      const { output } = await resolvePolaroidResult(job);
+      return [output.zipUrl, ...output.slides.map((slide) => slide.url)];
+    }
+    return [];
   } catch (err) {
     logger.warn({ jobId: job.id, err }, "could not resolve webhook result URL");
     return [];

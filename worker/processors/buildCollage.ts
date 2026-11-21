@@ -6,19 +6,16 @@ import type { ImageStats } from "@/lib/planner/collage/grid/types";
 import { planGridCollage as defaultPlan } from "@/lib/planner/collage/plan";
 import { CollageWorkerInput, type CollageWorkerResult } from "@/lib/schemas/collage";
 import type { JobData } from "@/lib/schemas/job";
-import {
-  inspectImage as defaultInspect,
-  isSupportedImageMime,
-} from "@/server/analyzers/image/metadata";
+import { inspectImage as defaultInspect } from "@/server/analyzers/image/metadata";
 import { getConfig, type Config } from "@/server/config";
 import { assetsRepo as defaultAssetsRepo } from "@/server/db/repositories/assets";
-import { AppError } from "@/server/http/errors";
 import { renderCollage as defaultRender } from "@/server/renderers/collage";
 import {
   downloadObjectToFile as defaultDownload,
   uploadFile as defaultUpload,
 } from "@/server/storage/objects";
 import { runJob as defaultRunJob, type RunJobDeps } from "../runJob";
+import { downloadSources, userError, type Progress } from "./sources";
 
 export interface BuildCollageDeps {
   assetsRepo: Pick<typeof defaultAssetsRepo, "getForOwner" | "register">;
@@ -46,17 +43,9 @@ const defaultDeps: BuildCollageDeps = {
 };
 
 const TEMP_PREFIX = "collage-";
-const PROGRESS_AFTER_DOWNLOADS = 70;
 const PROGRESS_AFTER_PLAN = 75;
 const PROGRESS_AFTER_RENDER = 90;
 const CONTENT_TYPES = { png: "image/png", jpeg: "image/jpeg" } as const;
-
-type Progress = (progress: number) => Promise<void>;
-type SourceAsset = NonNullable<Awaited<ReturnType<BuildCollageDeps["assetsRepo"]["getForOwner"]>>>;
-
-function userError(code: "VALIDATION_FAILED" | "NOT_FOUND", message: string): AppError {
-  return new AppError(code, code === "NOT_FOUND" ? 404 : 400, message);
-}
 
 function parseInput(raw: unknown): CollageWorkerInput {
   const parsed = CollageWorkerInput.safeParse(raw);
@@ -74,43 +63,6 @@ function checkCanvas(canvas: CollageWorkerInput["canvas"], config: Config): void
   ) {
     throw userError("VALIDATION_FAILED", "Canvas exceeds the configured size limits");
   }
-}
-
-async function resolveSource(
-  deps: BuildCollageDeps,
-  assetId: string,
-  ownerId: string,
-): Promise<SourceAsset> {
-  const asset = await deps.assetsRepo.getForOwner(assetId, ownerId);
-  if (!asset) throw userError("NOT_FOUND", "Source image not found");
-  if (asset.kind !== "image" || !isSupportedImageMime(asset.contentType)) {
-    throw userError("VALIDATION_FAILED", "Source asset is not a supported image");
-  }
-  return asset;
-}
-
-interface Downloaded {
-  stats: ImageStats[];
-  sourcePaths: Map<string, string>;
-}
-
-/** Sequential on purpose: decoding is memory-heavy and collage concurrency is bounded per worker. */
-async function downloadSources(
-  deps: BuildCollageDeps,
-  args: { ids: readonly string[]; ownerId: string; dir: string; config: Config },
-  progress: Progress,
-): Promise<Downloaded> {
-  const { maxImageUploadBytes, collageMaxInputPixels } = args.config;
-  const out: Downloaded = { stats: [], sourcePaths: new Map() };
-  for (const [index, id] of args.ids.entries()) {
-    const asset = await resolveSource(deps, id, args.ownerId);
-    const file = path.join(args.dir, `source-${index}`);
-    await deps.downloadObjectToFile(asset.key, file, maxImageUploadBytes);
-    out.stats.push(await deps.inspectImage(file, asset.id, collageMaxInputPixels));
-    out.sourcePaths.set(asset.id, file);
-    await progress(Math.round(((index + 1) / args.ids.length) * PROGRESS_AFTER_DOWNLOADS));
-  }
-  return out;
 }
 
 function plan(deps: BuildCollageDeps, input: CollageWorkerInput, images: readonly ImageStats[]) {

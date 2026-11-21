@@ -1,9 +1,11 @@
 import { z } from "zod";
 import type { JobResponse } from "@/lib/schemas/job";
+import { POLAROID_JOB_TYPE } from "@/lib/schemas/polaroid";
 import { jobsRepo } from "@/server/db/repositories/jobs";
 import { AppError } from "@/server/http/errors";
 import { requirePrincipal, withApi } from "@/server/http/withApi";
 import { COLLAGE_JOB_TYPE, resolveCollageResult } from "@/server/jobs/collageResult";
+import { resolvePolaroidResult } from "@/server/jobs/polaroidResult";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,6 +22,8 @@ export const GET = withApi({ auth: "apiKey" }, async ({ params, ctx }) => {
   let result: JobResponse["result"] = job.result ?? null;
   if (job.type === COLLAGE_JOB_TYPE) {
     result = job.status === "succeeded" ? await resolveCollageResult(job) : null;
+  } else if (job.type === POLAROID_JOB_TYPE) {
+    result = job.status === "succeeded" ? await resolvePolaroidResult(job) : null;
   }
   const json: JobResponse = {
     id: job.id,
