@@ -11,6 +11,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "vitest run",
+    "e2e": "playwright test",
     "worker": "tsx --env-file=.env worker/index.ts",
     "db:generate": "node --env-file=.env node_modules/drizzle-kit/bin.cjs generate",
     "db:migrate": "node --env-file=.env node_modules/drizzle-kit/bin.cjs migrate",
@@ -21,6 +22,8 @@
     "@aws-sdk/client-s3": "^3.1169.0",
     "@aws-sdk/s3-request-presigner": "^3.1169.0",
     "@base-ui/react": "^1.9.0",
+    "@hookform/resolvers": "^7.0.8",
+    "@tanstack/react-query": "^5.108.2",
     "bullmq": "^6.7.6",
     "class-variance-authority": "^0.7.1",
     "cn": "^0.5.2",
@@ -32,6 +35,7 @@
     "postgres": "^4.1.1",
     "react": "19.3.0",
     "react-dom": "19.3.0",
+    "react-hook-form": "^7.92.0",
     "server-only": "^0.0.1",
     "shadcn": "^4.23.0",
     "sharp": "^0.35.5",
@@ -39,6 +43,7 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@playwright/test": "^1.65.1",
     "@tailwindcss/turbopack": "4.3.3",
     "@types/node": "^24.19.2",
     "@types/react": "^19",

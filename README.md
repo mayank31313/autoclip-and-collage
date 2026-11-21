@@ -18,5 +18,10 @@ presigning, job status, and placeholder workers; media processing is not yet imp
 5. In separate terminals run `npm run worker` and `npm run dev`.
 6. Visit `http://localhost:3000` or check `http://localhost:3000/api/health`.
 7. Run `npm run smoke -- <api-key>` to enqueue a placeholder job and wait for it to succeed.
+8. Open `http://localhost:3000/collages` to build a collage in the browser. The API key you enter is
+   held only in page memory.
+
+Browser end-to-end tests mock the API and object store: run `npx playwright install chromium`
+once, then `npm run e2e`.
 
 See [docs/api.md](docs/api.md) for the available API and webhook contract.
