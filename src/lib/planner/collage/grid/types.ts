@@ -17,7 +17,7 @@ export interface ImageStats {
   pixelCount: number;
 }
 
-/** Empty rectangle in integer canvas pixels; `order` is the upload-order index. */
+/** Empty rectangle in integer canvas pixels; `order` is the slot's reading-order index (not an image upload index). */
 export interface Slot {
   id: number;
   x: number;

@@ -1,5 +1,5 @@
 import type { Cell } from "@/lib/schemas/layout";
-import { ASPECT_LOG_SPAN, ASSIGNMENT_WEIGHTS, DEFAULT_FOCUS, TIE_BREAK_EPSILON } from "./defaults";
+import { ASPECT_LOG_SPAN, ASSIGNMENT_WEIGHTS, DEFAULT_FOCUS } from "./defaults";
 import type { ImageStats, Slot } from "./grid/types";
 import { solveAssignment } from "./hungarian";
 
@@ -36,6 +36,35 @@ function assertUsable(images: readonly ImageStats[], slots: readonly Slot[]): vo
 }
 
 /**
+ * Returns the slot index per image row. Images whose cost rows are identical are
+ * interchangeable, so permuting them among their own slots leaves the total cost exactly
+ * unchanged; the lowest upload index gets the lowest slot index. Done as a post-pass
+ * (not a cost perturbation) so it can never flip a genuine optimum.
+ */
+function canonicalizeTies(
+  costs: readonly (readonly number[])[],
+  assignments: readonly { row: number; column: number }[],
+): number[] {
+  const slotOfImage: number[] = new Array<number>(costs.length).fill(-1);
+  const groups = new Map<string, { rows: number[]; columns: number[] }>();
+  for (const { row, column } of assignments) {
+    const key = costs[row].join(",");
+    const group = groups.get(key) ?? { rows: [], columns: [] };
+    group.rows.push(row);
+    group.columns.push(column);
+    groups.set(key, group);
+  }
+  for (const { rows, columns } of groups.values()) {
+    rows.sort((a, b) => a - b);
+    columns.sort((a, b) => a - b);
+    rows.forEach((row, k) => {
+      slotOfImage[row] = columns[k];
+    });
+  }
+  return slotOfImage;
+}
+
+/**
  * Assigns each image to exactly one slot, minimizing aspect mismatch, cover-crop loss and
  * (for hero slots) lost resolution. Pure and deterministic; upload order (the order of
  * `images`) breaks exact ties. Cells are returned in `slots` order and keep each slot's
@@ -44,13 +73,10 @@ function assertUsable(images: readonly ImageStats[], slots: readonly Slot[]): vo
 export function assignImagesToSlots(images: readonly ImageStats[], slots: readonly Slot[]): Cell[] {
   assertUsable(images, slots);
   const maxPixels = Math.max(1, ...images.map((image) => image.pixelCount));
-  const costs = images.map((image, i) =>
-    slots.map((slot, s) => pairCost(image, slot, maxPixels) + TIE_BREAK_EPSILON * Math.abs(i - s)),
-  );
+  const costs = images.map((image) => slots.map((slot) => pairCost(image, slot, maxPixels)));
+  const slotOfImage = canonicalizeTies(costs, solveAssignment(costs));
   const imageOfSlot = new Map<number, string>();
-  for (const { row, column } of solveAssignment(costs)) {
-    imageOfSlot.set(column, images[row].assetId);
-  }
+  slotOfImage.forEach((column, row) => imageOfSlot.set(column, images[row].assetId));
   return slots.map((slot, s) => ({
     id: slot.id,
     x: slot.x,

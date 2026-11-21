@@ -166,5 +166,27 @@ describe("planGridCollage assignment", () => {
       template: "hero-4",
     });
     expect(layout.cells[0].image).toBe("a4");
+    expect(layout.cells.slice(1).map((c) => c.image)).toEqual(["a0", "a1", "a2", "a3"]);
+  });
+
+  it("keeps identical images in upload order around a hero uploaded last", () => {
+    const images = ["a0", "a1", "a2", "a3"].map((id) => img(id, 1000, 1000));
+    images.push(img("hero", 5000, 5000));
+    const slots = [slot(0, 800, 800, true), ...[1, 2, 3, 4].map((i) => slot(i, 400, 400))];
+    expect(assignImagesToSlots(images, slots).map((c) => c.image)).toEqual([
+      "hero",
+      "a0",
+      "a1",
+      "a2",
+      "a3",
+    ]);
+  });
+
+  it("orders identical images by upload order within their slots when slots are mixed", () => {
+    const images = [img("w0", 2000, 1000), img("t", 1000, 2000), img("w1", 2000, 1000)];
+    const slots = [slot(0, 400, 200), slot(1, 200, 400), slot(2, 400, 200)];
+    expect(assignImagesToSlots(images, slots).map((c) => c.image)).toEqual(["w0", "t", "w1"]);
+    const reversed = [images[2], images[1], images[0]];
+    expect(assignImagesToSlots(reversed, slots).map((c) => c.image)).toEqual(["w1", "t", "w0"]);
   });
 });
