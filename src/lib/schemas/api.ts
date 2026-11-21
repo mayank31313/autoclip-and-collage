@@ -16,11 +16,18 @@ export const ALLOWED_UPLOAD_TYPES = [
   "image/jpeg",
   "image/png",
   "image/webp",
-  "image/heic",
 ] as const;
 
+// The packaged sharp/libvips build cannot decode HEVC, so HEIC/HEIF is excluded by type and name.
+const HEIC_EXTENSION = /\.hei[cf]$/i;
+const NOT_HEIC = { message: "HEIC/HEIF images are not supported" };
+
 export const PresignBody = z.object({
-  filename: z.string().min(1).max(255),
+  filename: z
+    .string()
+    .min(1)
+    .max(255)
+    .refine((name) => !HEIC_EXTENSION.test(name), NOT_HEIC),
   contentType: z.enum(ALLOWED_UPLOAD_TYPES),
   sizeBytes: z.number().int().positive(),
 });
@@ -38,7 +45,15 @@ const MAX_OBJECT_KEY_LENGTH = 1024;
 
 export const CreateCollageBody = z
   .object({
-    images: z.array(z.string().min(1).max(MAX_OBJECT_KEY_LENGTH)).min(1),
+    images: z
+      .array(
+        z
+          .string()
+          .min(1)
+          .max(MAX_OBJECT_KEY_LENGTH)
+          .refine((key) => !HEIC_EXTENSION.test(key), NOT_HEIC),
+      )
+      .min(1),
     mode: z.literal("grid"),
     style: CollageStyle,
     template: CollageTemplateId.optional(),

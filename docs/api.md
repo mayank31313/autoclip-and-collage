@@ -49,7 +49,9 @@ The response is `200`:
 ```
 
 The expiry is configured by the server. Accepted types are `video/mp4`, `video/quicktime`,
-`video/webm`, `video/x-matroska`, `image/jpeg`, `image/png`, `image/webp`, and `image/heic`.
+`video/webm`, `video/x-matroska`, `image/jpeg`, `image/png`, and `image/webp`. HEIC/HEIF is not
+accepted: the packaged sharp/libvips build cannot encode or decode HEVC, so `image/heic` and
+`.heic`/`.heif` filenames return `400`.
 Invalid JSON or fields return `400`; missing or invalid authentication returns `401`; an upload
 exceeding the configured limit returns `413`.
 

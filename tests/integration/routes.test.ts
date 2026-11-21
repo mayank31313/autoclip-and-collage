@@ -66,6 +66,13 @@ describe("POST /api/uploads/presign", () => {
     });
     expect(res.status).toBe(413);
   });
+  it("accepts HEIC only when the sharp build can decode it", async () => {
+    const { isSupportedImageMime } = await import("@/server/analyzers/image/metadata");
+    const res = await call({ filename: "a.heic", contentType: "image/heic", sizeBytes: 1000 });
+    expect(res.status).toBe(isSupportedImageMime("image/heic") ? 200 : 400);
+    const renamed = await call({ filename: "a.HEIF", contentType: "image/jpeg", sizeBytes: 1000 });
+    expect(renamed.status).toBe(isSupportedImageMime("image/heic") ? 200 : 400);
+  });
   it("applies MAX_IMAGE_UPLOAD_MB to images only", async () => {
     const size = 2 * 1024 * 1024;
     const image = await call({ filename: "big.png", contentType: "image/png", sizeBytes: size });

@@ -85,6 +85,12 @@ describe("PresignBody", () => {
       }).success,
     ).toBe(false);
   });
+  it("rejects HEIC types and extensions the packaged sharp build cannot decode", () => {
+    const heic = { filename: "a.heic", contentType: "image/heic", sizeBytes: 10 };
+    expect(PresignBody.safeParse(heic).success).toBe(false);
+    expect(PresignBody.safeParse({ ...heic, contentType: "image/png" }).success).toBe(false);
+    expect(PresignBody.safeParse({ ...heic, filename: "a.HEIF" }).success).toBe(false);
+  });
   it("accepts video/mp4", () => {
     expect(
       PresignBody.safeParse({ filename: "a.mp4", contentType: "video/mp4", sizeBytes: 10 }).success,
@@ -118,6 +124,14 @@ describe("CreateCollageBody", () => {
     expect(CreateCollageBody.safeParse({ ...valid, images: [] }).success).toBe(false);
     expect(
       CreateCollageBody.safeParse({ ...valid, images: [...valid.images, ...valid.images] }).success,
+    ).toBe(false);
+  });
+  it("rejects HEIC/HEIF image keys", () => {
+    expect(
+      CreateCollageBody.safeParse({ ...valid, images: ["uploads/owner/u1/a.heic"] }).success,
+    ).toBe(false);
+    expect(
+      CreateCollageBody.safeParse({ ...valid, images: ["uploads/owner/u1/a.HEIF"] }).success,
     ).toBe(false);
   });
   it("rejects unsupported modes and styles", () => {
