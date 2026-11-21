@@ -15,12 +15,21 @@ const env = {
 };
 Object.assign(process.env, env);
 
-const mocks = vi.hoisted(() => ({ findActiveByHash: vi.fn(), getForOwner: vi.fn() }));
-const { findActiveByHash, getForOwner } = mocks;
+const mocks = vi.hoisted(() => ({
+  findActiveByHash: vi.fn(),
+  getForOwner: vi.fn(),
+  enqueueJob: vi.fn(),
+  headObject: vi.fn(),
+  register: vi.fn(),
+}));
+const { findActiveByHash, getForOwner, enqueueJob, headObject, register } = mocks;
 vi.mock("@/server/db/repositories/apiKeys", () => ({
   apiKeysRepo: { findActiveByHash: mocks.findActiveByHash },
 }));
 vi.mock("@/server/db/repositories/jobs", () => ({ jobsRepo: { getForOwner: mocks.getForOwner } }));
+vi.mock("@/server/db/repositories/assets", () => ({ assetsRepo: { register: mocks.register } }));
+vi.mock("@/server/queue/queues", () => ({ enqueueJob: mocks.enqueueJob }));
+vi.mock("@/server/storage/objects", () => ({ headObject: mocks.headObject }));
 vi.mock("@/server/storage/presign", () => ({
   presignPut: async () => ({ url: "http://minio/put?sig=abc", expiresInSec: 900 }),
 }));
@@ -35,6 +44,11 @@ beforeEach(() => {
     .mockReset()
     .mockResolvedValue({ id: "11111111-1111-1111-1111-111111111111", name: "t" });
   getForOwner.mockReset();
+  enqueueJob.mockReset().mockResolvedValue({ id: "job-1" });
+  headObject.mockReset().mockResolvedValue({ contentType: "image/png", sizeBytes: 1000 });
+  register.mockReset().mockImplementation(async (args: { key: string }) => ({
+    id: `asset-${args.key.split("/").pop()}`,
+  }));
 });
 
 describe("POST /api/uploads/presign", () => {
@@ -124,5 +138,163 @@ describe("GET /api/jobs/:id", () => {
       errorMessage: "boom",
     });
     expect((await (await call(id)).json()).error).toEqual({ code: "JOB_FAILED", message: "boom" });
+  });
+});
+
+describe("POST /api/collages", () => {
+  const ownerId = "11111111-1111-1111-1111-111111111111";
+  const key = (name: string, owner = ownerId) => `uploads/${owner}/up-1/${name}`;
+  const canvas = { w: 1080, h: 1080 };
+  const body = (images: string[], extra: Record<string, unknown> = {}) => ({
+    images,
+    mode: "grid",
+    style: "justified",
+    canvas,
+    ...extra,
+  });
+  const call = async (payload: unknown, headers: Record<string, string> = auth) => {
+    const { POST } = await import("@/app/api/collages/route");
+    return POST(
+      new Request("http://x/api/collages", {
+        method: "POST",
+        headers,
+        body: JSON.stringify(payload),
+      }),
+    );
+  };
+  const expectRejected = async (res: Response, status: number, code: string) => {
+    expect(res.status).toBe(status);
+    expect((await res.json()).error.code).toBe(code);
+    expect(register).not.toHaveBeenCalled();
+    expect(enqueueJob).not.toHaveBeenCalled();
+  };
+
+  it("rejects missing credentials", async () => {
+    await expectRejected(await call(body([key("a.png")]), {}), 401, "UNAUTHORIZED");
+  });
+  it("rejects duplicate keys", async () => {
+    await expectRejected(await call(body([key("a.png"), key("a.png")])), 400, "VALIDATION_FAILED");
+  });
+  it("hides keys outside the caller's upload namespace", async () => {
+    const other = "99999999-9999-9999-9999-999999999999";
+    for (const k of [key("a.png", other), `uploads/${ownerId}x/up/a.png`, "a.png"]) {
+      headObject.mockClear();
+      await expectRejected(await call(body([k])), 404, "NOT_FOUND");
+      expect(headObject).not.toHaveBeenCalled();
+    }
+    await expectRejected(await call(body([key("../a.png")])), 404, "NOT_FOUND");
+  });
+  it("maps a missing S3 object to 404", async () => {
+    headObject.mockRejectedValue(
+      Object.assign(new Error("NotFound"), {
+        name: "NotFound",
+        $metadata: { httpStatusCode: 404 },
+      }),
+    );
+    await expectRejected(await call(body([key("a.png")])), 404, "NOT_FOUND");
+  });
+  it("does not mask other storage failures as client errors", async () => {
+    headObject.mockRejectedValue(new Error("connection reset"));
+    await expectRejected(await call(body([key("a.png")])), 500, "INTERNAL");
+  });
+  it("rejects unsupported MIME types and extensions", async () => {
+    headObject.mockResolvedValue({ contentType: "application/pdf", sizeBytes: 1000 });
+    await expectRejected(await call(body([key("a.png")])), 400, "VALIDATION_FAILED");
+    headObject.mockResolvedValue({ contentType: undefined, sizeBytes: 1000 });
+    await expectRejected(await call(body([key("a.png")])), 400, "VALIDATION_FAILED");
+    headObject.mockResolvedValue({ contentType: "image/png", sizeBytes: 1000 });
+    await expectRejected(await call(body([key("a.gif")])), 400, "VALIDATION_FAILED");
+    await expectRejected(await call(body([key("a")])), 400, "VALIDATION_FAILED");
+  });
+  it("rejects missing or oversized objects", async () => {
+    const tooBig = 2 * 1024 * 1024;
+    headObject.mockResolvedValue({ contentType: "image/png", sizeBytes: tooBig });
+    await expectRejected(await call(body([key("a.png")])), 413, "PAYLOAD_TOO_LARGE");
+    for (const sizeBytes of [undefined, 0]) {
+      headObject.mockResolvedValue({ contentType: "image/png", sizeBytes });
+      await expectRejected(await call(body([key("a.png")])), 400, "VALIDATION_FAILED");
+    }
+  });
+  it("rejects more images than COLLAGE_MAX_IMAGES", async () => {
+    const images = Array.from({ length: 21 }, (_, i) => key(`${i}.png`));
+    await expectRejected(await call(body(images)), 400, "VALIDATION_FAILED");
+  });
+  it("rejects canvases over the side or area limits", async () => {
+    for (const c of [
+      { w: 8193, h: 100 },
+      { w: 100, h: 8193 },
+      { w: 6000, h: 7000 },
+    ]) {
+      await expectRejected(
+        await call(body([key("a.png")], { canvas: c })),
+        400,
+        "VALIDATION_FAILED",
+      );
+    }
+  });
+  it("rejects curated templates with the wrong image count", async () => {
+    const images = [key("a.png"), key("b.png"), key("c.png")];
+    const res = await call(body(images, { style: "template", template: "grid-2x2" }));
+    await expectRejected(res, 400, "VALIDATION_FAILED");
+  });
+
+  it("enqueues a one-image justified job and returns only the job id", async () => {
+    const res = await call(body([key("a.png")], { webhookUrl: "https://hooks.example/x" }));
+    expect(res.status).toBe(202);
+    expect(await res.json()).toEqual({ jobId: "job-1" });
+    expect(register).toHaveBeenCalledWith({
+      ownerId,
+      key: key("a.png"),
+      kind: "image",
+      contentType: "image/png",
+      sizeBytes: 1000,
+    });
+    expect(enqueueJob).toHaveBeenCalledWith(
+      expect.objectContaining({ queue: "collage", type: "collage.build", ownerId }),
+    );
+    expect(enqueueJob).toHaveBeenCalledWith({
+      queue: "collage",
+      type: "collage.build",
+      ownerId,
+      webhookUrl: "https://hooks.example/x",
+      input: {
+        sourceAssetIds: ["asset-a.png"],
+        style: "justified",
+        canvas: { w: 1080, h: 1080, gap: 12, bg: "#ffffff" },
+        format: "png",
+      },
+    });
+  });
+  it("enqueues a multi-image template job in request order with asset IDs, not keys", async () => {
+    headObject.mockResolvedValue({ contentType: "image/JPEG; charset=binary", sizeBytes: 5 });
+    const keys = ["a.JPG", "b.jpeg", "c.webp", "d.png"].map((n) => key(n));
+    const res = await call(
+      body(keys, {
+        style: "template",
+        template: "grid-2x2",
+        format: "jpeg",
+        canvas: { ...canvas, bg: "#ABCDEF" },
+      }),
+    );
+    expect(res.status).toBe(202);
+    expect(register).toHaveBeenCalledWith(expect.objectContaining({ contentType: "image/jpeg" }));
+    const [args] = enqueueJob.mock.calls[0] as [
+      { input: Record<string, unknown>; webhookUrl?: string },
+    ];
+    expect(args.input).toEqual({
+      sourceAssetIds: ["asset-a.JPG", "asset-b.jpeg", "asset-c.webp", "asset-d.png"],
+      style: "template",
+      template: "grid-2x2",
+      canvas: { w: 1080, h: 1080, gap: 12, bg: "#ABCDEF" },
+      format: "jpeg",
+    });
+    expect(JSON.stringify(args)).not.toContain("uploads/");
+  });
+  it("surfaces a key registered by another owner as a conflict", async () => {
+    const { AppError } = await import("@/server/http/errors");
+    register.mockRejectedValue(new AppError("CONFLICT", 409, "Asset key is already registered"));
+    const res = await call(body([key("a.png")]));
+    expect(res.status).toBe(409);
+    expect(enqueueJob).not.toHaveBeenCalled();
   });
 });
