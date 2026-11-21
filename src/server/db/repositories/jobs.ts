@@ -16,6 +16,23 @@ export interface TransitionPatch {
 
 const TERMINAL: readonly JobStatus[] = ["succeeded", "failed", "cancelled"];
 
+export function buildTransitionSet(to: JobStatus, patch: TransitionPatch, now: Date) {
+  const clearOutput = to === "queued" || to === "running";
+  const clearErrors = clearOutput || to === "succeeded";
+
+  return {
+    status: to,
+    updatedAt: now,
+    finishedAt: TERMINAL.includes(to) ? now : null,
+    ...(clearErrors && { errorCode: null, errorMessage: null }),
+    ...(clearOutput && { result: null }),
+    ...(patch.progress !== undefined && { progress: patch.progress }),
+    ...(patch.result !== undefined && { result: patch.result }),
+    ...(patch.errorCode !== undefined && { errorCode: patch.errorCode }),
+    ...(patch.errorMessage !== undefined && { errorMessage: patch.errorMessage }),
+  };
+}
+
 export const jobsRepo = {
   async create(args: {
     ownerId: string;
@@ -46,15 +63,7 @@ export const jobsRepo = {
     assertTransition(current.status, to);
     const [row] = await getDb()
       .update(jobs)
-      .set({
-        status: to,
-        updatedAt: new Date(),
-        finishedAt: TERMINAL.includes(to) ? new Date() : null,
-        ...(patch.progress !== undefined && { progress: patch.progress }),
-        ...(patch.result !== undefined && { result: patch.result }),
-        ...(patch.errorCode !== undefined && { errorCode: patch.errorCode }),
-        ...(patch.errorMessage !== undefined && { errorMessage: patch.errorMessage }),
-      })
+      .set(buildTransitionSet(to, patch, new Date()))
       .where(and(eq(jobs.id, id), eq(jobs.status, current.status)))
       .returning();
     if (!row) throw new AppError("CONFLICT", 409, "Job state changed concurrently");
