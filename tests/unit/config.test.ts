@@ -20,6 +20,17 @@ describe("loadConfig", () => {
     expect(c.workerConcurrencyRender).toBe(2);
     expect(c.maxUploadBytes).toBe(2048 * 1024 * 1024);
   });
+  it("loads bounded collage defaults", () => {
+    const config = loadConfig(valid);
+    expect(config).toMatchObject({
+      maxImageUploadBytes: 200 * 1024 * 1024,
+      collageMaxImages: 20,
+      collageMaxInputPixels: 200_000_000,
+      collageMaxCanvasPixels: 40_000_000,
+      collageMaxDimension: 8192,
+      workerConcurrencyCollage: 1,
+    });
+  });
   it("coerces numeric values", () => {
     expect(loadConfig({ ...valid, MAX_UPLOAD_MB: "10" }).maxUploadBytes).toBe(10 * 1024 * 1024);
   });
