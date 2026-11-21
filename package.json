@@ -14,7 +14,8 @@
     "worker": "tsx --env-file=.env worker/index.ts",
     "db:generate": "node --env-file=.env node_modules/drizzle-kit/bin.cjs generate",
     "db:migrate": "node --env-file=.env node_modules/drizzle-kit/bin.cjs migrate",
-    "create-key": "tsx --env-file=.env scripts/create-api-key.ts"
+    "create-key": "tsx --env-file=.env scripts/create-api-key.ts",
+    "smoke": "tsx --env-file=.env scripts/smoke.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1169.0",
