@@ -151,7 +151,7 @@ describe("generateTemplateSlots", () => {
 describe("planGridCollage", () => {
   const canvas = { w: 1080, h: 1080, gap: 12, bg: "#ffffff" };
 
-  it("returns a validated grid spec with empty cells", () => {
+  it("returns a validated grid spec with every image assigned", () => {
     const layout = planGridCollage({
       canvas,
       images: images(5),
@@ -159,7 +159,7 @@ describe("planGridCollage", () => {
       template: "hero-4",
     });
     expect(layout).toMatchObject({ version: 1, mode: "grid", style: "template", canvas });
-    expect(layout.cells.every((c) => c.image === null && !c.pinned)).toBe(true);
+    expect(layout.cells.every((c) => c.image !== null && !c.pinned)).toBe(true);
   });
 
   it("requires a template for template style", () => {
