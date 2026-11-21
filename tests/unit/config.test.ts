@@ -31,6 +31,15 @@ describe("loadConfig", () => {
       workerConcurrencyCollage: 1,
     });
   });
+  it("loads polaroid defaults and overrides", () => {
+    expect(loadConfig(valid)).toMatchObject({
+      polaroidMaxSpreadPixels: 20_000_000,
+      polaroidFontPath: "assets/fonts/Caveat-Regular.ttf",
+    });
+    expect(loadConfig({ ...valid, COLLAGE_POLAROID_MAX_SPREAD_PIXELS: "5000000" })).toMatchObject({
+      polaroidMaxSpreadPixels: 5_000_000,
+    });
+  });
   it("coerces numeric values", () => {
     expect(loadConfig({ ...valid, MAX_UPLOAD_MB: "10" }).maxUploadBytes).toBe(10 * 1024 * 1024);
   });
