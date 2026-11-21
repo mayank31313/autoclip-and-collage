@@ -1,3 +1,4 @@
+import { UnrecoverableError } from "bullmq";
 import { describe, expect, it, vi } from "vitest";
 
 const logMocks = vi.hoisted(() => ({ error: vi.fn(), info: vi.fn(), warn: vi.fn() }));
@@ -126,6 +127,37 @@ describe("runJob", () => {
 
     expect(h.row).toMatchObject({ errorCode: "INTERNAL", errorMessage: "Job failed" });
     expect(h.row.errorMessage).not.toContain("database password leaked");
+  });
+  it("fails a user-error job at once without retrying and notifies", async () => {
+    const h = harness();
+    const err = await runJob(
+      args,
+      async () => {
+        throw new AppError("VALIDATION_FAILED", 400, "bad input");
+      },
+      h.deps,
+    ).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(UnrecoverableError);
+    expect((err as Error).message).toBe("bad input");
+    expect(h.history).toEqual(["running", "failed"]);
+    expect(h.row).toMatchObject({ errorCode: "VALIDATION_FAILED", errorMessage: "bad input" });
+    expect(h.notify).toHaveBeenCalledWith(expect.anything(), "failed");
+  });
+  it.each([
+    ["transient 4xx", new AppError("DEPENDENCY_UNAVAILABLE", 429, "slow down")],
+    ["server error", new AppError("DEPENDENCY_UNAVAILABLE", 502, "storage down")],
+  ])("still retries a %s", async (_label, error) => {
+    const h = harness();
+    await expect(
+      runJob(
+        args,
+        async () => {
+          throw error;
+        },
+        h.deps,
+      ),
+    ).rejects.toBe(error);
+    expect(h.history).toEqual(["running", "queued"]);
   });
   it("does not fail the job if notification throws", async () => {
     const h = harness();

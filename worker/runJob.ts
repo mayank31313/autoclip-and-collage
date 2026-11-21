@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
+import { UnrecoverableError } from "bullmq";
 import type { JobStatus } from "@/lib/schemas/job";
 import { jobsRepo, type JobRow, type TransitionPatch } from "@/server/db/repositories/jobs";
 import { AppError } from "@/server/http/errors";
+import { COLLAGE_JOB_TYPE, resolveCollageResult } from "@/server/jobs/collageResult";
 import { logger } from "@/server/logger";
 import { deliverWebhook } from "@/server/webhooks/deliver";
 
@@ -22,12 +24,41 @@ const defaultDeps: RunJobDeps = {
     if (!job.webhookUrl) return;
     await deliverWebhook({
       url: job.webhookUrl,
-      event: { eventId: randomUUID(), jobId: job.id, type: job.type, status, resultUrls: [] },
+      event: {
+        eventId: randomUUID(),
+        jobId: job.id,
+        type: job.type,
+        status,
+        resultUrls: await resultUrlsFor(job, status),
+      },
     });
   },
 };
 
+/** Signs URLs at delivery time; a result that cannot be resolved must not block the webhook. */
+async function resultUrlsFor(job: JobRow, status: JobStatus): Promise<string[]> {
+  if (status !== "succeeded" || job.type !== COLLAGE_JOB_TYPE) return [];
+  try {
+    const { output } = await resolveCollageResult(job);
+    return [output.downloadUrl];
+  } catch (err) {
+    logger.warn({ jobId: job.id, err }, "could not resolve webhook result URL");
+    return [];
+  }
+}
+
 const FINISHED: readonly JobStatus[] = ["succeeded", "failed", "cancelled"];
+const RETRYABLE_CLIENT_STATUSES: readonly number[] = [408, 429];
+
+/** A 4xx AppError describes bad input, which no retry can fix. */
+function isPermanentFailure(err: unknown): err is AppError {
+  return (
+    err instanceof AppError &&
+    err.status >= 400 &&
+    err.status < 500 &&
+    !RETRYABLE_CLIENT_STATUSES.includes(err.status)
+  );
+}
 
 async function safeNotify(deps: RunJobDeps, job: JobRow, status: JobStatus): Promise<void> {
   try {
@@ -62,8 +93,9 @@ export async function runJob(
     const done = await deps.store.transition(job.id, "succeeded", { progress: 100, result });
     await safeNotify(deps, done, "succeeded");
   } catch (err) {
+    const permanent = isPermanentFailure(err);
     const finalAttempt = args.attemptsMade + 1 >= args.maxAttempts;
-    if (!finalAttempt) {
+    if (!finalAttempt && !permanent) {
       await deps.store.transition(job.id, "queued");
     } else {
       const failed = await deps.store.transition(job.id, "failed", {
@@ -75,6 +107,8 @@ export async function runJob(
       });
       await safeNotify(deps, failed, "failed");
     }
+    // BullMQ retries any other error, so signal that retrying cannot help.
+    if (permanent) throw new UnrecoverableError(err.message);
     throw err;
   }
 }

@@ -35,6 +35,9 @@ export const assetsRepo = {
     if (inserted) return inserted;
 
     const existing = await assetsRepo.getByKeyForOwner(args.key, args.ownerId);
+    if (existing?.kind === "output" && args.kind === "output") {
+      return assetsRepo.refreshOutput(existing, args);
+    }
     if (
       !existing ||
       existing.kind !== args.kind ||
@@ -44,6 +47,25 @@ export const assetsRepo = {
       throw new AppError("CONFLICT", 409, "Asset key is already registered");
     }
     return existing;
+  },
+  /** Outputs sit at deterministic keys, so a retried job overwrites the object and refreshes its row. */
+  async refreshOutput(existing: AssetRow, args: RegisterAssetArgs): Promise<AssetRow> {
+    const unchanged =
+      existing.contentType === args.contentType &&
+      existing.sizeBytes === args.sizeBytes &&
+      JSON.stringify(existing.metadata ?? null) === JSON.stringify(args.metadata ?? null);
+    if (unchanged) return existing;
+    const [updated] = await getDb()
+      .update(assets)
+      .set({
+        contentType: args.contentType,
+        sizeBytes: args.sizeBytes,
+        metadata: args.metadata ?? null,
+      })
+      .where(and(eq(assets.id, existing.id), eq(assets.ownerId, existing.ownerId)))
+      .returning();
+    if (!updated) throw new AppError("CONFLICT", 409, "Asset key is already registered");
+    return updated;
   },
   async getForOwner(id: string, ownerId: string): Promise<AssetRow | undefined> {
     const [row] = await getDb()
