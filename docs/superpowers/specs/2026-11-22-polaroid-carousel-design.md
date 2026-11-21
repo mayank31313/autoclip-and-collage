@@ -19,7 +19,7 @@ glued onto a diary page. Output is a ZIP of all slides plus per-slide URLs for a
   - `slides` defaults to `clamp(ceil(images / 3), 2, 10)`.
   - `captions`, when present, has exactly one entry per image; each entry is 0..60 characters of
     plain text (empty string = no caption).
-  - `images.length >= slides` (every slide gets at least one polaroid).
+  - `images.length >= slides` (every slide gets at least one polaroid) and `images.length <= slides * 6`.
 - `format` (png | jpeg, default png) applies to slides. `webhookUrl` optional.
 - No `canvas`: slide width is fixed (`POLAROID_SLIDE_WIDTH_PX = 1080`); height is 1350 (4:5) or 1080 (1:1).
 
@@ -51,8 +51,9 @@ pairwise overlap. A validator checks these invariants; the schema calls it in `s
 
 Reads only the spec. Everything is drawn procedurally with sharp and SVG (no image assets):
 
-1. Diary page: cream paper, ruled lines, faint margin line, binding stitches.
-2. Torn sheet: rough-edged polygon with a lighter fibrous rim and soft shadow, glued over the page.
+1. Diary page: cream paper, ruled lines and binding holes along the top margin.
+2. Torn sheet: rough-edged polygon with a lighter fibrous rim and a blurred shadow, glued over the page.
+   Paper grain is a seeded, tiled noise layer; SVG filters are too slow at spread size.
 3. Per polaroid: EXIF-rotate and cover-resize the photo, white frame with thick bottom strip, shadow,
    rotation on a transparent background, tape strips, caption in the bottom strip.
 4. Composite sequentially onto the spread, `extract` N slides, encode, and write a ZIP.
@@ -66,8 +67,9 @@ into the worker image. One small zip dependency is added (chosen in the plan).
 New job type `collage.polaroid` on the existing `collage` queue. It reuses the download, inspect and
 temp-dir flow (shared helpers extracted from `buildCollage.ts`, no behaviour change). Idempotent keys:
 `outputs/{jobId}/slide-{n}.{ext}` and `outputs/{jobId}/polaroid.zip`. Stores `PolaroidWorkerResult`
-(zip asset id, slide asset ids, dimensions). New config caps: max slides, max caption length, max spread
-pixels (re-checked in the worker). Progress: downloads, plan, render, upload.
+(zip asset id, slide asset ids, dimensions). Slide count (2-10), caption length (60) and images per slide
+(6) are shared constants in `polaroid/defaults.ts`; config adds `COLLAGE_POLAROID_MAX_SPREAD_PIXELS`
+(re-checked in the worker) and `POLAROID_FONT_PATH`. Progress: downloads, plan, render, upload.
 
 ## UI
 
