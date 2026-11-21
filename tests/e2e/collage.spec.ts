@@ -119,6 +119,59 @@ test("retries a failed job without uploading again", async ({ page }) => {
   expect(presignCalls).toBe(1);
 });
 
+test("locks inputs while an upload is in progress", async ({ page }) => {
+  const png = await makePng();
+  await page.route(RESULT_URL, (route) =>
+    route.fulfill({ status: 200, contentType: "image/png", body: png }),
+  );
+  let releasePut: () => void = () => undefined;
+  const putGate = new Promise<void>((resolve) => {
+    releasePut = resolve;
+  });
+  await page.route(PUT_URL, async (route) => {
+    const preflight = route.request().method() === "OPTIONS";
+    if (!preflight) await putGate;
+    await route.fulfill({
+      status: preflight ? 204 : 200,
+      headers: {
+        "access-control-allow-origin": "*",
+        "access-control-allow-methods": "PUT, OPTIONS",
+        "access-control-allow-headers": "content-type",
+      },
+    });
+  });
+  await page.route("**/api/uploads/presign", (route) =>
+    route.fulfill({ json: { url: PUT_URL, key: OBJECT_KEY, expiresInSec: 900 } }),
+  );
+  await page.route("**/api/collages", (route) =>
+    route.fulfill({ status: 202, json: { jobId: "j1" } }),
+  );
+  await page.route("**/api/jobs/j1", (route) =>
+    route.fulfill({
+      json: {
+        id: "j1",
+        type: "collage.build",
+        status: "succeeded",
+        progress: 100,
+        result: { output: OUTPUT },
+        error: null,
+      },
+    }),
+  );
+
+  await fillForm(page, png);
+  await page.getByRole("button", { name: "Create collage" }).click();
+  await expect(page.getByLabel("API key")).toBeDisabled();
+  await expect(page.getByLabel("Images", { exact: true })).toBeDisabled();
+  await expect(page.getByLabel("Justified rows")).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Create collage" })).toBeDisabled();
+
+  releasePut();
+  await expect(page.getByRole("img", { name: "Generated collage" })).toBeVisible();
+  await expect(page.getByLabel("API key")).toBeEnabled();
+  await expect(page.getByLabel("Images", { exact: true })).toBeEnabled();
+});
+
 test("keeps the API key out of storage and URLs", async ({ page }) => {
   const png = await makePng();
   await mockStorage(page, png);

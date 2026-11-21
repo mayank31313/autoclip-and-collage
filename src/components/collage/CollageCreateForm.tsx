@@ -20,6 +20,7 @@ import {
 } from "@/features/collage/form";
 import { isTerminalStatus } from "@/features/collage/job";
 import type { CollageLimits } from "@/features/collage/limits";
+import { createSubmissionGuard } from "@/features/collage/submissionGuard";
 import { useJob } from "@/features/collage/useJob";
 import { useUpload } from "@/features/collage/useUpload";
 import type { JobResponse } from "@/lib/schemas/job";
@@ -68,19 +69,26 @@ export function CollageCreateForm({ limits }: { limits: CollageLimits }) {
   const { upload, progress, reset: resetUpload } = useUpload(key);
   const { job, error: jobError } = useJob(key, jobId);
 
+  // Inputs are locked while submitting; the guard also drops results of any superseded submission.
+  const guard = useState(createSubmissionGuard)[0];
+
   const create = useMutation({
-    mutationFn: async (values: CollageFormValues) => {
+    mutationFn: async ({ values, token }: { values: CollageFormValues; token: number }) => {
       const keys = uploadedKeys ?? (await upload(values.files));
+      if (!guard.isCurrent(token)) return null;
       setUploadedKeys(keys);
-      return createCollage(key, buildCreateBody(values, keys));
+      const res = await createCollage(key, buildCreateBody(values, keys));
+      return guard.isCurrent(token) ? res : null;
     },
     onMutate: () => setJobId(null),
-    onSuccess: (res) => setJobId(res.jobId),
+    onSuccess: (res) => {
+      if (res) setJobId(res.jobId);
+    },
   });
 
   const submit = form.handleSubmit((values) => {
     if (!key) return;
-    create.mutate(values);
+    create.mutate({ values, token: guard.begin() });
   });
 
   function run() {
@@ -99,6 +107,7 @@ export function CollageCreateForm({ limits }: { limits: CollageLimits }) {
     if (!compatibleTemplates(selected.length).includes(form.getValues("template"))) {
       form.setValue("template", "rectangular");
     }
+    guard.invalidate();
     setUploadedKeys(null);
     setJobId(null);
     resetUpload();
@@ -109,6 +118,7 @@ export function CollageCreateForm({ limits }: { limits: CollageLimits }) {
     setApiKey(event.target.value);
     setKeyError(null);
     // Uploaded objects belong to the key's owner, so a different key must upload again.
+    guard.invalidate();
     setUploadedKeys(null);
   }
 
@@ -122,63 +132,65 @@ export function CollageCreateForm({ limits }: { limits: CollageLimits }) {
 
   return (
     <form onSubmit={onSubmit} noValidate className="space-y-6">
-      <div>
-        <label htmlFor="collage-api-key" className={legendClass}>
-          API key
-        </label>
-        <input
-          id="collage-api-key"
-          type="password"
-          autoComplete="off"
-          spellCheck={false}
-          className={inputClass}
-          value={apiKey}
-          onChange={onKeyChange}
-          aria-invalid={keyError ? true : undefined}
-          aria-describedby="collage-api-key-note"
-        />
-        <p id="collage-api-key-note" className="mt-1 text-xs text-muted-foreground">
-          Kept in this page&apos;s memory only; it is never stored.
-        </p>
-        {keyError && <p className={fieldErrorClass}>{keyError}</p>}
-      </div>
+      <fieldset disabled={create.isPending} className="m-0 min-w-0 space-y-6 border-0 p-0">
+        <div>
+          <label htmlFor="collage-api-key" className={legendClass}>
+            API key
+          </label>
+          <input
+            id="collage-api-key"
+            type="password"
+            autoComplete="off"
+            spellCheck={false}
+            className={inputClass}
+            value={apiKey}
+            onChange={onKeyChange}
+            aria-invalid={keyError ? true : undefined}
+            aria-describedby="collage-api-key-note"
+          />
+          <p id="collage-api-key-note" className="mt-1 text-xs text-muted-foreground">
+            Kept in this page&apos;s memory only; it is never stored.
+          </p>
+          {keyError && <p className={fieldErrorClass}>{keyError}</p>}
+        </div>
 
-      <div>
-        <label htmlFor="collage-images" className={legendClass}>
-          Images
-        </label>
-        <input
-          id="collage-images"
-          type="file"
-          multiple
-          accept={IMAGE_TYPES.join(",")}
-          className={inputClass}
-          onChange={onFilesChange}
-          aria-invalid={fileErrors.length ? true : undefined}
-          aria-describedby="collage-images-note collage-images-errors"
-        />
-        <p id="collage-images-note" className="mt-1 text-xs text-muted-foreground">
-          1 to {limits.maxImages} JPEG, PNG, or WebP files, up to{" "}
-          {formatBytes(limits.maxImageUploadBytes)} each.
-        </p>
-        <ul id="collage-images-errors" className={fieldErrorClass}>
-          {fileErrors.map((message) => (
-            <li key={message}>{message}</li>
-          ))}
-        </ul>
-        {files.length > 0 && (
-          <ul className="mt-2 space-y-1 text-sm">
-            {files.map((file, i) => (
-              <li key={`${i}-${file.name}`}>
-                {file.name} ({formatBytes(file.size)})
-                {uploading && progress[i] !== undefined ? ` – ${progress[i]}% uploaded` : ""}
-              </li>
+        <div>
+          <label htmlFor="collage-images" className={legendClass}>
+            Images
+          </label>
+          <input
+            id="collage-images"
+            type="file"
+            multiple
+            accept={IMAGE_TYPES.join(",")}
+            className={inputClass}
+            onChange={onFilesChange}
+            aria-invalid={fileErrors.length ? true : undefined}
+            aria-describedby="collage-images-note collage-images-errors"
+          />
+          <p id="collage-images-note" className="mt-1 text-xs text-muted-foreground">
+            1 to {limits.maxImages} JPEG, PNG, or WebP files, up to{" "}
+            {formatBytes(limits.maxImageUploadBytes)} each.
+          </p>
+          <ul id="collage-images-errors" className={fieldErrorClass}>
+            {fileErrors.map((message) => (
+              <li key={message}>{message}</li>
             ))}
           </ul>
-        )}
-      </div>
+          {files.length > 0 && (
+            <ul className="mt-2 space-y-1 text-sm">
+              {files.map((file, i) => (
+                <li key={`${i}-${file.name}`}>
+                  {file.name} ({formatBytes(file.size)})
+                  {uploading && progress[i] !== undefined ? ` – ${progress[i]}% uploaded` : ""}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
 
-      <CollageOptionsFields form={form} limits={limits} fileCount={files.length} />
+        <CollageOptionsFields form={form} limits={limits} fileCount={files.length} />
+      </fieldset>
 
       <Button type="submit" disabled={create.isPending || polling}>
         Create collage
