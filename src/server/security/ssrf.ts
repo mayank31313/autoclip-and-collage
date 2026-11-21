@@ -1,11 +1,19 @@
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
+import { request as httpRequest } from "node:http";
+import { request as httpsRequest } from "node:https";
+import { Readable } from "node:stream";
 import { AppError } from "@/server/http/errors";
 
 export type Resolver = (host: string) => Promise<string[]>;
 
 const defaultResolver: Resolver = async (host) =>
   (await lookup(host, { all: true })).map((r) => r.address);
+
+export interface PublicDestination {
+  url: URL;
+  address: string;
+}
 
 export function isPrivateIp(ip: string): boolean {
   const version = isIP(ip);
@@ -65,6 +73,14 @@ export async function assertPublicUrl(
   raw: string,
   resolve: Resolver = defaultResolver,
 ): Promise<URL> {
+  return (await resolvePublicDestination(raw, resolve)).url;
+}
+
+export async function resolvePublicDestination(
+  raw: string,
+  resolve: Resolver = defaultResolver,
+  signal?: AbortSignal,
+): Promise<PublicDestination> {
   let url: URL;
   try {
     url = new URL(raw);
@@ -75,10 +91,11 @@ export async function assertPublicUrl(
     throw blocked("Only http(s) URLs are allowed");
   if (url.username || url.password) throw blocked("Credentials in URLs are not allowed");
   const host = url.hostname.replace(/^\[|\]$/g, "");
-  const addresses = isIP(host) ? [host] : await resolve(host);
+  const resolved = isIP(host) ? Promise.resolve([host]) : resolve(host);
+  const addresses = signal ? await withAbortSignal(resolved, signal) : await resolved;
   if (addresses.length === 0 || addresses.some(isPrivateIp))
     throw blocked("URL resolves to a non-public address");
-  return url;
+  return { url, address: addresses[0] };
 }
 
 export interface SafeFetchOptions {
@@ -87,37 +104,125 @@ export interface SafeFetchOptions {
   maxRedirects: number;
 }
 export interface SafeFetchDeps {
-  fetch: (url: string | URL, init?: RequestInit) => Promise<Response>;
+  fetch?: (url: string | URL, init?: RequestInit, address?: string) => Promise<Response>;
   resolve: Resolver;
 }
 
 /**
- * Fetches a remote URL re-validating every redirect hop and capping size and time.
- * TODO(milestone-5): pin the validated IP to defeat DNS rebinding between check and connect.
+ * Fetches a remote URL re-validating and pinning every redirect hop while capping size and time.
  */
 export async function safeFetch(
   raw: string,
   opts: SafeFetchOptions,
-  deps: SafeFetchDeps = { fetch: (u, i) => fetch(u, i), resolve: defaultResolver },
+  deps: SafeFetchDeps = { resolve: defaultResolver },
 ): Promise<Response> {
   let current = raw;
   const signal = AbortSignal.timeout(opts.timeoutMs);
   for (let hop = 0; hop <= opts.maxRedirects; hop++) {
-    const url = await assertPublicUrl(current, deps.resolve);
-    const res = await deps.fetch(url, { redirect: "manual", signal });
+    const destination = await resolvePublicDestination(current, deps.resolve, signal);
+    const res = await (deps.fetch ?? fetchPinned)(
+      destination.url,
+      {
+        redirect: "manual",
+        signal,
+      },
+      destination.address,
+    );
     const location = res.headers.get("location");
     if (res.status >= 300 && res.status < 400 && location) {
-      current = new URL(location, url).toString();
+      await cancelBody(res);
+      try {
+        current = new URL(location, destination.url).toString();
+      } catch {
+        throw blocked("Invalid redirect URL");
+      }
       continue;
     }
-    return capBody(res, opts.maxBytes);
+    return await capBody(res, opts.maxBytes);
   }
   throw blocked("Too many redirects");
 }
 
-function capBody(res: Response, maxBytes: number): Response {
+function withAbortSignal<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) return Promise.reject(signal.reason);
+  return new Promise((resolve, reject) => {
+    const onAbort = () => reject(signal.reason);
+    signal.addEventListener("abort", onAbort, { once: true });
+    void promise.then(
+      (value) => {
+        signal.removeEventListener("abort", onAbort);
+        resolve(value);
+      },
+      (error: unknown) => {
+        signal.removeEventListener("abort", onAbort);
+        reject(error);
+      },
+    );
+  });
+}
+
+export function fetchPinned(
+  target: string | URL,
+  init: RequestInit = {},
+  address?: string,
+): Promise<Response> {
+  if (!address) return Promise.reject(blocked("Missing validated destination address"));
+  const url = target instanceof URL ? target : new URL(target);
+  const request = url.protocol === "https:" ? httpsRequest : httpRequest;
+  const host = url.hostname.replace(/^\[|\]$/g, "");
+  const family = isIP(address);
+  return new Promise((resolve, reject) => {
+    const req = request(
+      url,
+      {
+        method: init.method,
+        headers: toNodeHeaders(init.headers),
+        signal: init.signal ?? undefined,
+        lookup: (_hostname, options, callback) => {
+          if (options.all) callback(null, [{ address, family }]);
+          else callback(null, address, family);
+        },
+        ...(url.protocol === "https:" && !isIP(host) ? { servername: host } : {}),
+      },
+      (incoming) => {
+        const headers = new Headers();
+        for (const [name, value] of Object.entries(incoming.headers)) {
+          if (value !== undefined)
+            headers.set(name, Array.isArray(value) ? value.join(", ") : value);
+        }
+        const status = incoming.statusCode ?? 502;
+        const body =
+          status === 204 || status === 205 || status === 304
+            ? null
+            : (Readable.toWeb(incoming) as ReadableStream<Uint8Array>);
+        resolve(new Response(body, { status, headers }));
+      },
+    );
+    req.on("error", reject);
+    const body = init.body;
+    if (typeof body === "string" || body instanceof Uint8Array) req.end(body);
+    else if (body === null || body === undefined) req.end();
+    else {
+      req.destroy(new TypeError("Unsupported request body type"));
+      reject(new TypeError("Unsupported request body type"));
+    }
+  });
+}
+
+function toNodeHeaders(headers?: HeadersInit): Record<string, string> {
+  const result: Record<string, string> = {};
+  new Headers(headers).forEach((value, name) => {
+    result[name] = value;
+  });
+  return result;
+}
+
+async function capBody(res: Response, maxBytes: number): Promise<Response> {
   const declared = Number(res.headers.get("content-length") ?? 0);
-  if (declared > maxBytes) throw new AppError("PAYLOAD_TOO_LARGE", 413, "Remote file too large");
+  if (declared > maxBytes) {
+    await cancelBody(res);
+    throw new AppError("PAYLOAD_TOO_LARGE", 413, "Remote file too large");
+  }
   if (!res.body) return res;
   let seen = 0;
   const limited = res.body.pipeThrough(
@@ -131,4 +236,12 @@ function capBody(res: Response, maxBytes: number): Response {
     }),
   );
   return new Response(limited, { status: res.status, headers: res.headers });
+}
+
+async function cancelBody(res: Response): Promise<void> {
+  try {
+    await res.body?.cancel();
+  } catch {
+    // Cleanup should not replace the request's primary error.
+  }
 }

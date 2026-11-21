@@ -1,5 +1,5 @@
 export interface LayoutIssue {
-  cellId: number;
+  cellIndex: number;
   message: string;
 }
 
@@ -21,15 +21,15 @@ export function validateLayout(spec: {
 }): LayoutIssue[] {
   const issues: LayoutIssue[] = [];
   const { canvas, cells } = spec;
-  for (const c of cells) {
+  for (const [cellIndex, c] of cells.entries()) {
     if (c.x + c.w > canvas.w || c.y + c.h > canvas.h) {
-      issues.push({ cellId: c.id, message: "cell extends outside the canvas" });
+      issues.push({ cellIndex, message: "cell extends outside the canvas" });
     }
   }
   for (let i = 0; i < cells.length; i++) {
     for (let j = i + 1; j < cells.length; j++) {
       if (overlaps(cells[i], cells[j])) {
-        issues.push({ cellId: cells[j].id, message: `cell overlaps cell ${cells[i].id}` });
+        issues.push({ cellIndex: j, message: `cell overlaps cell ${cells[i].id}` });
       }
     }
   }

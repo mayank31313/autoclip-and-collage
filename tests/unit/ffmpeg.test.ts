@@ -48,6 +48,9 @@ describe("parseProbe", () => {
     expect(info).toMatchObject({ hasVideo: true, hasAudio: false, durationSec: 0 });
     expect(info.fps).toBeUndefined();
   });
+  it.each(["NaN", "Infinity", "-1"])("rejects invalid duration %s", (duration) => {
+    expect(() => parseProbe({ ...json, format: { duration } })).toThrow();
+  });
   it("throws on malformed output", () => {
     expect(() => parseProbe({ nope: true })).toThrow();
   });

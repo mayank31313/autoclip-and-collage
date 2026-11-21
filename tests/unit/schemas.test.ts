@@ -53,6 +53,17 @@ describe("LayoutSpec", () => {
   it("rejects cells outside the canvas", () => {
     expect(LayoutSpec.safeParse({ ...base, cells: [cell(0, 75, 0)] }).success).toBe(false);
   });
+  it("reports invalid cells by array position rather than cell ID", () => {
+    const result = LayoutSpec.safeParse({
+      ...base,
+      cells: [cell(37, 0, 0), cell(4, 75, 0)],
+    });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues[0].path).toEqual(["cells", 1]);
+    }
+  });
   it("rejects non-integer coordinates", () => {
     expect(LayoutSpec.safeParse({ ...base, cells: [cell(0, 0.5, 0)] }).success).toBe(false);
   });

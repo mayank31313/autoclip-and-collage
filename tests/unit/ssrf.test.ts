@@ -1,5 +1,11 @@
-import { describe, expect, it } from "vitest";
-import { assertPublicUrl, isPrivateIp, safeFetch } from "@/server/security/ssrf";
+import { describe, expect, it, vi } from "vitest";
+import {
+  assertPublicUrl,
+  isPrivateIp,
+  resolvePublicDestination,
+  safeFetch,
+  type SafeFetchDeps,
+} from "@/server/security/ssrf";
 
 const publicResolver = async () => ["93.184.216.34"];
 
@@ -77,6 +83,18 @@ describe("assertPublicUrl", () => {
   });
 });
 
+describe("resolvePublicDestination", () => {
+  it("applies the timeout while resolving a hostname", async () => {
+    await expect(
+      resolvePublicDestination(
+        "https://example.com/",
+        () => new Promise(() => undefined),
+        AbortSignal.timeout(1),
+      ),
+    ).rejects.toMatchObject({ name: "TimeoutError" });
+  }, 200);
+});
+
 describe("safeFetch", () => {
   const opts = { maxBytes: 10, timeoutMs: 1000, maxRedirects: 2 };
   it("follows a redirect and returns the body", async () => {
@@ -94,6 +112,46 @@ describe("safeFetch", () => {
     expect(await res.text()).toBe("hello");
     expect(calls).toEqual(["https://example.com/a", "https://cdn.example.com/x"]);
   });
+  it("passes the validated address to the transport without resolving the hostname again", async () => {
+    let resolutions = 0;
+    let pin: string | undefined;
+    const fetchImpl = vi.fn(async (_url: string | URL, _init?: RequestInit, address?: string) => {
+      pin = address;
+      return new Response("hello");
+    });
+    const resolve = async () => {
+      resolutions += 1;
+      return ["93.184.216.34"];
+    };
+
+    await safeFetch("https://example.com/a", opts, {
+      fetch: fetchImpl as unknown as SafeFetchDeps["fetch"],
+      resolve,
+    });
+
+    expect(resolutions).toBe(1);
+    expect(pin).toBe("93.184.216.34");
+  });
+  it("resolves and pins every redirect destination independently", async () => {
+    const addresses = ["93.184.216.34", "8.8.8.8"];
+    const pins: unknown[] = [];
+    const fetchImpl = vi.fn(async (url: string | URL, _init?: RequestInit, address?: string) => {
+      pins.push(address);
+      return pins.length === 1
+        ? new Response(null, { status: 302, headers: { location: "https://cdn.example.com/x" } })
+        : new Response("hello");
+    });
+    let resolution = 0;
+    const resolve = vi.fn(async () => [addresses[resolution++]]);
+
+    await safeFetch("https://example.com/a", opts, {
+      fetch: fetchImpl as unknown as SafeFetchDeps["fetch"],
+      resolve,
+    });
+
+    expect(resolve).toHaveBeenCalledTimes(2);
+    expect(pins).toEqual(addresses);
+  });
   it("blocks a redirect to a private address", async () => {
     const fetchImpl = async () =>
       new Response(null, { status: 302, headers: { location: "http://169.254.169.254/" } });
@@ -108,11 +166,60 @@ describe("safeFetch", () => {
       safeFetch("https://example.com/a", opts, { fetch: fetchImpl, resolve: publicResolver }),
     ).rejects.toMatchObject({ code: "SSRF_BLOCKED" });
   });
+  it("rejects malformed redirect destinations as blocked URLs", async () => {
+    const fetchImpl = async () =>
+      new Response(null, { status: 302, headers: { location: "http://[::1" } });
+    await expect(
+      safeFetch("https://example.com/a", opts, { fetch: fetchImpl, resolve: publicResolver }),
+    ).rejects.toMatchObject({ code: "SSRF_BLOCKED" });
+  });
+  it("cancels the redirect response body before following the location", async () => {
+    const cancel = vi.fn();
+    let calls = 0;
+    const fetchImpl = async () => {
+      calls++;
+      return calls === 1
+        ? new Response(new ReadableStream({ cancel }), {
+            status: 302,
+            headers: { location: "https://cdn.example.com/file" },
+          })
+        : new Response("ok");
+    };
+
+    const response = await safeFetch("https://example.com/a", opts, {
+      fetch: fetchImpl,
+      resolve: publicResolver,
+    });
+
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(await response.text()).toBe("ok");
+  });
   it("rejects oversized bodies by content-length", async () => {
     const fetchImpl = async () => new Response("x", { headers: { "content-length": "999" } });
     await expect(
       safeFetch("https://example.com/a", opts, { fetch: fetchImpl, resolve: publicResolver }),
     ).rejects.toMatchObject({ code: "PAYLOAD_TOO_LARGE" });
+  });
+  it("cancels the body when the declared size is too large", async () => {
+    const cancel = vi.fn();
+    const fetchImpl = async () =>
+      new Response(new ReadableStream({ cancel }), {
+        headers: { "content-length": "999" },
+      });
+
+    await expect(
+      safeFetch("https://example.com/a", opts, { fetch: fetchImpl, resolve: publicResolver }),
+    ).rejects.toMatchObject({ code: "PAYLOAD_TOO_LARGE" });
+    expect(cancel).toHaveBeenCalledOnce();
+  });
+  it("applies the timeout while resolving the destination", async () => {
+    await expect(
+      safeFetch(
+        "https://example.com/a",
+        { ...opts, timeoutMs: 1 },
+        { fetch: async () => new Response("unused"), resolve: () => new Promise(() => undefined) },
+      ),
+    ).rejects.toMatchObject({ name: "TimeoutError" });
   });
   it("errors the stream when the body exceeds maxBytes", async () => {
     const fetchImpl = async () => new Response("this body is far longer than ten bytes");

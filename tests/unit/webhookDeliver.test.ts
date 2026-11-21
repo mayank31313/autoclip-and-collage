@@ -74,6 +74,37 @@ describe("deliverWebhook", () => {
     expect(d.sleeps).toEqual([100, 200]);
     expect(d.records).toHaveLength(3);
   });
+  it("revalidates and pins the destination on every retry", async () => {
+    const d = deps([new Response("", { status: 500 }), new Response("ok", { status: 200 })]);
+    const addresses = ["93.184.216.34", "8.8.8.8"];
+    let validationCount = 0;
+    const assertUrl = vi.fn(async () => addresses[validationCount++]);
+    d.assertUrl = assertUrl;
+
+    await deliverWebhook({ url: "https://hook.test/x", event }, d);
+
+    expect(assertUrl).toHaveBeenCalledTimes(2);
+    expect(
+      (d.fetchMock.mock.calls as unknown as Array<[string, RequestInit, string]>).map(
+        (call) => call[2],
+      ),
+    ).toEqual(addresses);
+  });
+  it("uses one timeout signal for destination validation and request", async () => {
+    const d = deps([new Response("ok", { status: 200 })]);
+    let validationSignal: AbortSignal | undefined;
+    d.assertUrl = async (_url, signal) => {
+      validationSignal = signal;
+      return "93.184.216.34";
+    };
+
+    await deliverWebhook({ url: "https://hook.test/x", event }, d);
+
+    expect(validationSignal).toBeInstanceOf(AbortSignal);
+    expect((d.fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].signal).toBe(
+      validationSignal,
+    );
+  });
   it("gives up after maxAttempts and returns false", async () => {
     const d = deps([
       new Response("", { status: 500 }),

@@ -29,7 +29,7 @@ export const LayoutSpec = z
   })
   .superRefine((spec, ctx) => {
     for (const issue of validateLayout(spec)) {
-      ctx.addIssue({ code: "custom", message: issue.message, path: ["cells", issue.cellId] });
+      ctx.addIssue({ code: "custom", message: issue.message, path: ["cells", issue.cellIndex] });
     }
   });
 export type LayoutSpec = z.infer<typeof LayoutSpec>;

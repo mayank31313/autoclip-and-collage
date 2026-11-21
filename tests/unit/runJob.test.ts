@@ -93,6 +93,40 @@ describe("runJob", () => {
     expect(h.row).toMatchObject({ errorCode: "VALIDATION_FAILED", errorMessage: "bad input" });
     expect(h.notify).toHaveBeenCalledWith(expect.anything(), "failed");
   });
+  it("persists a generic message for unexpected errors", async () => {
+    const h = harness();
+    const final = { ...args, attemptsMade: 2 };
+
+    await expect(
+      runJob(
+        final,
+        async () => {
+          throw new Error("database password leaked");
+        },
+        h.deps,
+      ),
+    ).rejects.toThrow("database password leaked");
+
+    expect(h.row).toMatchObject({ errorCode: "JOB_FAILED", errorMessage: "Job failed" });
+    expect(h.row.errorMessage).not.toContain("database password leaked");
+  });
+  it("persists a generic message for internal AppErrors", async () => {
+    const h = harness();
+    const final = { ...args, attemptsMade: 2 };
+
+    await expect(
+      runJob(
+        final,
+        async () => {
+          throw new AppError("INTERNAL", 500, "database password leaked");
+        },
+        h.deps,
+      ),
+    ).rejects.toThrow("database password leaked");
+
+    expect(h.row).toMatchObject({ errorCode: "INTERNAL", errorMessage: "Job failed" });
+    expect(h.row.errorMessage).not.toContain("database password leaked");
+  });
   it("does not fail the job if notification throws", async () => {
     const h = harness();
     h.notify.mockRejectedValueOnce(new Error("hook down"));

@@ -35,9 +35,14 @@ function parseFps(rate?: string): number | undefined {
 
 export function parseProbe(json: unknown): MediaInfo {
   const p = ProbeSchema.parse(json);
+  const durationSec = z
+    .number()
+    .finite()
+    .nonnegative()
+    .parse(p.format.duration === undefined ? 0 : Number(p.format.duration));
   const video = p.streams.find((s) => s.codec_type === "video");
   return {
-    durationSec: Number(p.format.duration ?? 0),
+    durationSec,
     hasVideo: Boolean(video),
     hasAudio: p.streams.some((s) => s.codec_type === "audio"),
     width: video?.width,

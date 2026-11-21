@@ -11,7 +11,7 @@ Except for health, requests require `Authorization: Bearer <key>`. Jobs are scop
 Errors use this envelope; `details` is included when available:
 
 ```json
-{ "error": { "code": "NOT_FOUND", "message": "Job not found" } }
+{ "error": { "code": "NOT_FOUND", "message": "Job not found", "details": {} } }
 ```
 
 ## GET /api/health

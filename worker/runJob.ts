@@ -68,7 +68,10 @@ export async function runJob(
     } else {
       const failed = await deps.store.transition(job.id, "failed", {
         errorCode: err instanceof AppError ? err.code : "JOB_FAILED",
-        errorMessage: err instanceof Error ? err.message : "Job failed",
+        errorMessage:
+          err instanceof AppError && err.status >= 400 && err.status < 500
+            ? err.message
+            : "Job failed",
       });
       await safeNotify(deps, failed, "failed");
     }

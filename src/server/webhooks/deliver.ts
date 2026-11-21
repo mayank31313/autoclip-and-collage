@@ -3,7 +3,7 @@ import { getConfig } from "@/server/config";
 import { logger } from "@/server/logger";
 import { webhookDeliveriesRepo } from "@/server/db/repositories/webhookDeliveries";
 import { signPayload } from "@/server/security/hmac";
-import { assertPublicUrl } from "@/server/security/ssrf";
+import { fetchPinned, resolvePublicDestination } from "@/server/security/ssrf";
 
 export interface WebhookEvent {
   eventId: string;
@@ -14,14 +14,14 @@ export interface WebhookEvent {
 }
 
 export interface WebhookDeps {
-  fetch: (url: string, init: RequestInit) => Promise<Response>;
+  fetch: (url: string, init: RequestInit, address?: string) => Promise<Response>;
   sleep: (ms: number) => Promise<void>;
   secret: string;
   maxAttempts: number;
   baseDelayMs: number;
   timeoutMs: number;
   nowSec: () => number;
-  assertUrl: (url: string) => Promise<unknown>;
+  assertUrl: (url: string, signal?: AbortSignal) => Promise<unknown>;
   record: (a: {
     eventId: string;
     jobId: string;
@@ -34,14 +34,15 @@ export interface WebhookDeps {
 
 export function defaultWebhookDeps(): WebhookDeps {
   return {
-    fetch: (url, init) => fetch(url, init),
+    fetch: (url, init, address) => fetchPinned(url, init, address),
     sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
     secret: getConfig().webhookSecret,
     maxAttempts: 5,
     baseDelayMs: 1000,
     timeoutMs: 10_000,
     nowSec: () => Math.floor(Date.now() / 1000),
-    assertUrl: (url) => assertPublicUrl(url),
+    assertUrl: async (url, signal) =>
+      (await resolvePublicDestination(url, undefined, signal)).address,
     record: (a) => webhookDeliveriesRepo.record(a),
   };
 }
@@ -73,29 +74,36 @@ export async function deliverWebhook(
   args: { url: string; event: WebhookEvent },
   deps: WebhookDeps = defaultWebhookDeps(),
 ): Promise<boolean> {
-  try {
-    await deps.assertUrl(args.url);
-  } catch {
-    return false;
-  }
   const body = JSON.stringify(args.event);
   for (let attempt = 1; attempt <= deps.maxAttempts; attempt++) {
+    const signal = AbortSignal.timeout(deps.timeoutMs);
+    let address: string | undefined;
+    try {
+      const validated = await deps.assertUrl(args.url, signal);
+      if (typeof validated === "string") address = validated;
+    } catch {
+      return false;
+    }
     const timestamp = deps.nowSec();
     const rec = { eventId: args.event.eventId, jobId: args.event.jobId, url: args.url, attempt };
     let res: Response | undefined;
     let error: string | undefined;
     try {
-      res = await deps.fetch(args.url, {
-        method: "POST",
-        redirect: "manual",
-        signal: AbortSignal.timeout(deps.timeoutMs),
-        headers: {
-          "Content-Type": "application/json",
-          "X-Timestamp": String(timestamp),
-          "X-Signature": signPayload({ secret: deps.secret, body, timestamp }),
+      res = await deps.fetch(
+        args.url,
+        {
+          method: "POST",
+          redirect: "manual",
+          signal,
+          headers: {
+            "Content-Type": "application/json",
+            "X-Timestamp": String(timestamp),
+            "X-Signature": signPayload({ secret: deps.secret, body, timestamp }),
+          },
+          body,
         },
-        body,
-      });
+        address,
+      );
     } catch (err) {
       error = err instanceof Error ? err.message : "request failed";
     }
