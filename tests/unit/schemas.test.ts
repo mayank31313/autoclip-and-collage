@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { Edl } from "@/lib/schemas/edl";
 import { LayoutSpec } from "@/lib/schemas/layout";
-import { PresignBody } from "@/lib/schemas/api";
+import {
+  CollageJobResult,
+  CreateCollageBody,
+  CreateCollageResponse,
+  PresignBody,
+} from "@/lib/schemas/api";
+import { CollageWorkerInput, CollageWorkerResult } from "@/lib/schemas/collage";
 
 const clip = {
   src: "a1",
@@ -83,5 +89,150 @@ describe("PresignBody", () => {
     expect(
       PresignBody.safeParse({ filename: "a.mp4", contentType: "video/mp4", sizeBytes: 10 }).success,
     ).toBe(true);
+  });
+});
+
+describe("CreateCollageBody", () => {
+  const valid = {
+    images: ["uploads/owner/u1/a.png"],
+    mode: "grid",
+    style: "justified",
+    canvas: { w: 1080, h: 1080 },
+  };
+  const keys = (n: number) => Array.from({ length: n }, (_, i) => `uploads/owner/u1/${i}.png`);
+  const template = (id: string, n: number) => ({
+    ...valid,
+    images: keys(n),
+    style: "template",
+    template: id,
+  });
+
+  it("parses a one-image justified request and applies defaults", () => {
+    expect(CreateCollageBody.parse(valid)).toMatchObject({
+      style: "justified",
+      format: "png",
+      canvas: { gap: 12, bg: "#ffffff" },
+    });
+  });
+  it("rejects empty and duplicate image keys", () => {
+    expect(CreateCollageBody.safeParse({ ...valid, images: [] }).success).toBe(false);
+    expect(
+      CreateCollageBody.safeParse({ ...valid, images: [...valid.images, ...valid.images] }).success,
+    ).toBe(false);
+  });
+  it("rejects unsupported modes and styles", () => {
+    expect(CreateCollageBody.safeParse({ ...valid, mode: "sequence" }).success).toBe(false);
+    expect(CreateCollageBody.safeParse({ ...valid, style: "guillotine" }).success).toBe(false);
+  });
+  it.each([
+    ["grid-2x2", 4],
+    ["grid-3x3", 9],
+    ["hero-4", 5],
+  ])("requires exactly the curated count for %s", (id, n) => {
+    expect(CreateCollageBody.safeParse(template(id, n)).success).toBe(true);
+    expect(CreateCollageBody.safeParse(template(id, n - 1)).success).toBe(false);
+    expect(CreateCollageBody.safeParse(template(id, n + 1)).success).toBe(false);
+  });
+  it("accepts a rectangular template for any image count", () => {
+    expect(CreateCollageBody.safeParse(template("rectangular", 1)).success).toBe(true);
+    expect(CreateCollageBody.safeParse(template("rectangular", 7)).success).toBe(true);
+  });
+  it("requires a template for template style and rejects one for justified", () => {
+    expect(CreateCollageBody.safeParse({ ...valid, style: "template" }).success).toBe(false);
+    expect(CreateCollageBody.safeParse({ ...valid, template: "rectangular" }).success).toBe(false);
+    expect(CreateCollageBody.safeParse(template("grid-4x4", 4)).success).toBe(false);
+  });
+  it("validates canvas dimensions, gap, and background", () => {
+    const withCanvas = (canvas: object) => CreateCollageBody.safeParse({ ...valid, canvas });
+    expect(withCanvas({ w: 800, h: 600, gap: 0, bg: "#A0b1C2" }).success).toBe(true);
+    expect(withCanvas({ w: 0, h: 600 }).success).toBe(false);
+    expect(withCanvas({ w: 800.5, h: 600 }).success).toBe(false);
+    expect(withCanvas({ w: 800, h: 600, gap: -1 }).success).toBe(false);
+    expect(withCanvas({ w: 800, h: 600, bg: "#fff" }).success).toBe(false);
+    expect(withCanvas({ w: 800, h: 600, bg: "white" }).success).toBe(false);
+  });
+  it("accepts png and jpeg formats only", () => {
+    expect(CreateCollageBody.safeParse({ ...valid, format: "jpeg" }).success).toBe(true);
+    expect(CreateCollageBody.safeParse({ ...valid, format: "webp" }).success).toBe(false);
+  });
+  it("accepts only http(s) webhook URLs", () => {
+    const hook = (webhookUrl: string) => CreateCollageBody.safeParse({ ...valid, webhookUrl });
+    expect(hook("https://receiver.example/hook").success).toBe(true);
+    expect(hook("ftp://receiver.example/hook").success).toBe(false);
+    expect(hook("not a url").success).toBe(false);
+  });
+});
+
+describe("CreateCollageResponse", () => {
+  it("contains only the job id", () => {
+    expect(CreateCollageResponse.parse({ jobId: "j1", extra: 1 })).toEqual({ jobId: "j1" });
+    expect(CreateCollageResponse.safeParse({}).success).toBe(false);
+  });
+});
+
+describe("CollageWorkerInput", () => {
+  const input = {
+    sourceAssetIds: ["a1", "a2"],
+    style: "justified",
+    canvas: { w: 1080, h: 1080, gap: 12, bg: "#ffffff" },
+    format: "png",
+  };
+  it("accepts a nonempty unique asset-ID list", () => {
+    expect(CollageWorkerInput.safeParse(input).success).toBe(true);
+  });
+  it("rejects empty and duplicate asset IDs", () => {
+    expect(CollageWorkerInput.safeParse({ ...input, sourceAssetIds: [] }).success).toBe(false);
+    expect(CollageWorkerInput.safeParse({ ...input, sourceAssetIds: ["a1", "a1"] }).success).toBe(
+      false,
+    );
+  });
+  it("enforces style/template consistency and curated counts", () => {
+    expect(CollageWorkerInput.safeParse({ ...input, style: "template" }).success).toBe(false);
+    expect(CollageWorkerInput.safeParse({ ...input, template: "rectangular" }).success).toBe(false);
+    expect(
+      CollageWorkerInput.safeParse({ ...input, style: "template", template: "grid-2x2" }).success,
+    ).toBe(false);
+    expect(
+      CollageWorkerInput.safeParse({
+        ...input,
+        sourceAssetIds: ["a1", "a2", "a3", "a4"],
+        style: "template",
+        template: "grid-2x2",
+      }).success,
+    ).toBe(true);
+  });
+});
+
+describe("CollageWorkerResult", () => {
+  it("accepts the internal result", () => {
+    expect(
+      CollageWorkerResult.safeParse({
+        outputAssetId: "o1",
+        width: 1080,
+        height: 1080,
+        format: "jpeg",
+      }).success,
+    ).toBe(true);
+  });
+});
+
+describe("CollageJobResult", () => {
+  const output = {
+    width: 1080,
+    height: 1080,
+    format: "png",
+    downloadUrl: "https://s3.example/outputs/j1/collage.png?sig=x",
+    expiresInSec: 900,
+  };
+  it("accepts a valid public result", () => {
+    expect(CollageJobResult.safeParse({ output }).success).toBe(true);
+  });
+  it("rejects invalid URL, format, and dimensions", () => {
+    const bad = (patch: object) => CollageJobResult.safeParse({ output: { ...output, ...patch } });
+    expect(bad({ downloadUrl: "not a url" }).success).toBe(false);
+    expect(bad({ format: "gif" }).success).toBe(false);
+    expect(bad({ width: 0 }).success).toBe(false);
+    expect(bad({ height: 10.5 }).success).toBe(false);
+    expect(bad({ expiresInSec: 0 }).success).toBe(false);
   });
 });
