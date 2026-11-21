@@ -10,7 +10,8 @@ const env = {
   S3_BUCKET: "b",
   API_KEY_PEPPER: "p".repeat(16),
   WEBHOOK_SIGNING_SECRET: "w".repeat(16),
-  MAX_UPLOAD_MB: "1",
+  MAX_UPLOAD_MB: "4",
+  MAX_IMAGE_UPLOAD_MB: "1",
 };
 Object.assign(process.env, env);
 
@@ -64,6 +65,17 @@ describe("POST /api/uploads/presign", () => {
       sizeBytes: 5 * 1024 * 1024,
     });
     expect(res.status).toBe(413);
+  });
+  it("applies MAX_IMAGE_UPLOAD_MB to images only", async () => {
+    const size = 2 * 1024 * 1024;
+    const image = await call({ filename: "big.png", contentType: "image/png", sizeBytes: size });
+    expect(image.status).toBe(413);
+    expect((await image.json()).error.code).toBe("PAYLOAD_TOO_LARGE");
+    const small = await call({ filename: "ok.png", contentType: "image/png", sizeBytes: 1000 });
+    expect(small.status).toBe(200);
+    expect((await small.json()).key).toMatch(/^uploads\/1111.*\/ok\.png$/);
+    const video = await call({ filename: "ok.mp4", contentType: "video/mp4", sizeBytes: size });
+    expect(video.status).toBe(200);
   });
 });
 

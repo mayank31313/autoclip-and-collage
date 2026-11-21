@@ -10,10 +10,11 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export const POST = withApi({ auth: "apiKey", body: PresignBody }, async ({ body, ctx }) => {
-  const { maxUploadBytes } = getConfig();
-  if (body.sizeBytes > maxUploadBytes) {
+  const { maxUploadBytes, maxImageUploadBytes } = getConfig();
+  const maxBytes = body.contentType.startsWith("image/") ? maxImageUploadBytes : maxUploadBytes;
+  if (body.sizeBytes > maxBytes) {
     throw new AppError("PAYLOAD_TOO_LARGE", 413, "File exceeds the maximum upload size", {
-      maxBytes: maxUploadBytes,
+      maxBytes,
     });
   }
   const key = buildUploadKey({
