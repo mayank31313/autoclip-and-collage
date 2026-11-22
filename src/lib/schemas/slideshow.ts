@@ -11,7 +11,7 @@ export const SlideshowSourceSchema = z
   .object({
     key: z.string().min(1).max(1024),
     kind: SlideshowSourceKind,
-    durationSec: z.number().positive().max(30).optional(),
+    durationSec: z.number().positive().optional(),
     startSec: z.number().nonnegative().optional(),
     endSec: z.number().positive().optional(),
     fit: SlideshowFit.default("cover"),
@@ -45,7 +45,7 @@ export const SlideshowOptions = z
     canvas: SlideshowCanvas.default("16:9"),
     fps: z.union([z.literal(24), z.literal(30)]).default(30),
     transition: z.enum(["cut", "fade", "wipe"]).default("cut"),
-    transitionSec: z.number().nonnegative().max(2).default(0),
+    transitionSec: z.number().nonnegative().default(0),
   })
   .refine(
     (options) => options.transition !== "cut" || options.transitionSec === 0,
@@ -55,7 +55,7 @@ export const SlideshowOptions = z
 export const SlideshowWorkerSource = z.object({
   assetId: z.string().min(1),
   kind: SlideshowSourceKind,
-  durationSec: z.number().positive().max(30),
+  durationSec: z.number().positive(),
   startSec: z.number().nonnegative().default(0),
   endSec: z.number().positive(),
   fit: SlideshowFit,

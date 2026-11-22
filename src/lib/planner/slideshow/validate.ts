@@ -1,9 +1,4 @@
 import type { SlideshowSpec } from "@/lib/schemas/slideshow";
-import {
-  SLIDESHOW_MAX_DURATION_SEC,
-  SLIDESHOW_MAX_SLIDE_SEC,
-  SLIDESHOW_MAX_TRANSITION_SEC,
-} from "@/lib/planner/slideshow/defaults";
 
 export interface SlideshowIssue {
   path: readonly (string | number)[];
@@ -12,6 +7,13 @@ export interface SlideshowIssue {
 
 const DURATION_EPSILON_SEC = 1e-6;
 
+/**
+ * Structural checks only: positive/ordered durations, unique asset usage, and the
+ * cut-requires-zero-transition rule. Runtime upper bounds (max slide/master/transition
+ * duration, max slide count) come from server Config and are enforced in the API route,
+ * not here, so this pure planner stays IO-free and config changes do not require rebuilding
+ * the browser bundle that imports it for live preview.
+ */
 export function validateSlideshowSpec(spec: SlideshowSpec): readonly SlideshowIssue[] {
   const issues: SlideshowIssue[] = [];
   const assetIds = new Set<string>();
@@ -30,27 +32,9 @@ export function validateSlideshowSpec(spec: SlideshowSpec): readonly SlideshowIs
         message: "durationSec must equal endSec minus startSec",
       });
     }
-    if (slide.durationSec > SLIDESHOW_MAX_SLIDE_SEC) {
-      issues.push({
-        path: ["slides", index, "durationSec"],
-        message: `durationSec must not exceed ${SLIDESHOW_MAX_SLIDE_SEC}s`,
-      });
-    }
   }
   if (spec.transition.type === "cut" && spec.transition.durationSec !== 0) {
     issues.push({ path: ["transition", "durationSec"], message: "cut requires zero transition" });
-  }
-  if (spec.transition.durationSec > SLIDESHOW_MAX_TRANSITION_SEC) {
-    issues.push({
-      path: ["transition", "durationSec"],
-      message: `transition durationSec must not exceed ${SLIDESHOW_MAX_TRANSITION_SEC}s`,
-    });
-  }
-  if (spec.masterDurationSec > SLIDESHOW_MAX_DURATION_SEC) {
-    issues.push({
-      path: ["masterDurationSec"],
-      message: `masterDurationSec must not exceed ${SLIDESHOW_MAX_DURATION_SEC}s`,
-    });
   }
   return issues;
 }

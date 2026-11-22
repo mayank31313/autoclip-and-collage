@@ -299,12 +299,23 @@ async function verifySlideshowSource(
   };
 }
 
-/** Validates the full timeline (durations, transitions, master length) before any asset is registered. */
+/**
+ * Validates the full timeline (durations, transitions, master length) before any asset is
+ * registered. The pure `SlideshowSpec` only enforces structural rules (ordering, uniqueness,
+ * cut-requires-zero-transition); runtime upper bounds come from server `Config` and are checked
+ * here so they can change without touching the isomorphic planner/schema code.
+ */
 function checkTimeline(
   slideshow: SlideshowBody["slideshow"],
   verified: readonly VerifiedMedia[],
   sources: readonly SlideshowSource[],
 ): void {
+  const { slideshowMaxTransitionSec, slideshowMaxDurationSec } = getConfig();
+  if (slideshow.transitionSec > slideshowMaxTransitionSec) {
+    throw invalid(`transitionSec must not exceed ${slideshowMaxTransitionSec}s`, {
+      slideshowMaxTransitionSec,
+    });
+  }
   const spec = planSlideshowTimeline({
     canvas: slideshow.canvas,
     fps: slideshow.fps,
@@ -324,6 +335,11 @@ function checkTimeline(
   if (!parsed.success) {
     throw invalid(parsed.error.issues[0]?.message ?? "Invalid slideshow timeline", {
       issues: parsed.error.issues,
+    });
+  }
+  if (parsed.data.masterDurationSec > slideshowMaxDurationSec) {
+    throw invalid(`masterDurationSec must not exceed ${slideshowMaxDurationSec}s`, {
+      slideshowMaxDurationSec,
     });
   }
 }

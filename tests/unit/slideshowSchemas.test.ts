@@ -162,7 +162,9 @@ describe("slideshow schemas", () => {
     expect(SLIDESHOW_CANVAS_SIZE["1:1"]).toEqual({ w: 1080, h: 1080 });
   });
 
-  it("rejects a slide exceeding SLIDESHOW_MAX_SLIDE_SEC", () => {
+  it("does not enforce a slide duration upper bound in the pure spec/validator", () => {
+    // Runtime upper bounds come from server Config and are enforced in the API route
+    // (src/app/api/collages/route.ts), not in the isomorphic schema/planner.
     const spec = {
       version: 1,
       canvas: { w: 1920, h: 1080 },
@@ -181,13 +183,11 @@ describe("slideshow schemas", () => {
       ],
       masterDurationSec: 1000,
     };
-    expect(SlideshowSpec.safeParse(spec).success).toBe(false);
-    expect(validateSlideshowSpec(spec as SlideshowSpec).map((i) => i.message)).toContain(
-      "durationSec must not exceed 30s",
-    );
+    expect(SlideshowSpec.safeParse(spec).success).toBe(true);
+    expect(validateSlideshowSpec(spec as SlideshowSpec)).toHaveLength(0);
   });
 
-  it("rejects a masterDurationSec exceeding SLIDESHOW_MAX_DURATION_SEC", () => {
+  it("does not enforce a masterDurationSec upper bound in the pure spec/validator", () => {
     const spec: SlideshowSpec = {
       version: 1,
       canvas: { w: 1920, h: 1080 },
@@ -206,13 +206,11 @@ describe("slideshow schemas", () => {
       ],
       masterDurationSec: 5000,
     };
-    expect(SlideshowSpec.safeParse(spec).success).toBe(false);
-    expect(validateSlideshowSpec(spec).map((i) => i.message)).toContain(
-      "masterDurationSec must not exceed 300s",
-    );
+    expect(SlideshowSpec.safeParse(spec).success).toBe(true);
+    expect(validateSlideshowSpec(spec)).toHaveLength(0);
   });
 
-  it("rejects a transition exceeding SLIDESHOW_MAX_TRANSITION_SEC", () => {
+  it("does not enforce a transition duration upper bound in the pure spec/validator", () => {
     const spec = {
       version: 1,
       canvas: { w: 1920, h: 1080 },
@@ -231,10 +229,8 @@ describe("slideshow schemas", () => {
       ],
       masterDurationSec: 3,
     };
-    expect(SlideshowSpec.safeParse(spec).success).toBe(false);
-    expect(validateSlideshowSpec(spec as SlideshowSpec).map((i) => i.message)).toContain(
-      "transition durationSec must not exceed 2s",
-    );
+    expect(SlideshowSpec.safeParse(spec).success).toBe(true);
+    expect(validateSlideshowSpec(spec as SlideshowSpec)).toHaveLength(0);
   });
 
   it("rejects a slide whose durationSec disagrees with endSec minus startSec", () => {

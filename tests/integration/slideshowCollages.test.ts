@@ -168,6 +168,73 @@ describe("POST /api/collages (slideshow)", () => {
     await expectRejected(res, 400, "VALIDATION_FAILED");
   });
 
+  it("rejects a 45-second slide and a 360-second master under the default config", async () => {
+    const longSlide = await call(body([imageSource("a.jpg", { durationSec: 45 })]));
+    await expectRejected(longSlide, 400, "VALIDATION_FAILED");
+
+    const sources = Array.from({ length: 9 }, (_, i) => imageSource(`${i}.jpg`, { durationSec: 40 }));
+    const longMaster = await call(body(sources));
+    await expectRejected(longMaster, 400, "VALIDATION_FAILED");
+  });
+
+  it("accepts a 45-second slide and a 360-second master once config limits are raised", async () => {
+    Object.assign(process.env, {
+      SLIDESHOW_MAX_SLIDE_SEC: "45",
+      SLIDESHOW_MAX_DURATION_SEC: "360",
+    });
+    vi.resetModules();
+    try {
+      const { POST } = await import("@/app/api/collages/route");
+      const run = (payload: unknown) =>
+        POST(
+          new Request("http://x/api/collages", {
+            method: "POST",
+            headers: auth,
+            body: JSON.stringify(payload),
+          }),
+        );
+
+      const longSlideRes = await run(body([imageSource("a.jpg", { durationSec: 45 })]));
+      expect(longSlideRes.status).toBe(202);
+
+      const sources = Array.from({ length: 9 }, (_, i) => imageSource(`${i}.jpg`, { durationSec: 40 }));
+      const longMasterRes = await run(body(sources));
+      expect(longMasterRes.status).toBe(202);
+    } finally {
+      Object.assign(process.env, {
+        SLIDESHOW_MAX_SLIDE_SEC: "30",
+        SLIDESHOW_MAX_DURATION_SEC: "300",
+      });
+      vi.resetModules();
+    }
+  });
+
+  it("rejects a transition exceeding the configured SLIDESHOW_MAX_TRANSITION_SEC", async () => {
+    Object.assign(process.env, { SLIDESHOW_MAX_TRANSITION_SEC: "1" });
+    vi.resetModules();
+    try {
+      const { POST } = await import("@/app/api/collages/route");
+      const run = (payload: unknown) =>
+        POST(
+          new Request("http://x/api/collages", {
+            method: "POST",
+            headers: auth,
+            body: JSON.stringify(payload),
+          }),
+        );
+      const res = await run(
+        body(
+          [imageSource("a.jpg"), imageSource("b.jpg")],
+          { transition: "fade", transitionSec: 1.5 },
+        ),
+      );
+      await expectRejected(res, 400, "VALIDATION_FAILED");
+    } finally {
+      Object.assign(process.env, { SLIDESHOW_MAX_TRANSITION_SEC: "2" });
+      vi.resetModules();
+    }
+  });
+
   it("registers image and video assets and enqueues a collage.slideshow job", async () => {
     const payload = body([imageSource("a.jpg", { durationSec: 4 }), videoSource("b.mp4", { startSec: 1, endSec: 6 })]);
     const res = await call(payload);
