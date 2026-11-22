@@ -8,7 +8,7 @@ export type AssetRow = typeof assets.$inferSelect;
 export interface RegisterAssetArgs {
   ownerId: string;
   key: string;
-  kind: "image" | "output";
+  kind: "image" | "video" | "output";
   contentType: string;
   sizeBytes: number;
   metadata?: Record<string, unknown>;

@@ -6,6 +6,7 @@ import { AppError } from "@/server/http/errors";
 import { requirePrincipal, withApi } from "@/server/http/withApi";
 import { COLLAGE_JOB_TYPE, resolveCollageResult } from "@/server/jobs/collageResult";
 import { resolvePolaroidResult } from "@/server/jobs/polaroidResult";
+import { SLIDESHOW_JOB_TYPE, resolveSlideshowResult } from "@/server/jobs/slideshowResult";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,6 +25,8 @@ export const GET = withApi({ auth: "apiKey" }, async ({ params, ctx }) => {
     result = job.status === "succeeded" ? await resolveCollageResult(job) : null;
   } else if (job.type === POLAROID_JOB_TYPE) {
     result = job.status === "succeeded" ? await resolvePolaroidResult(job) : null;
+  } else if (job.type === SLIDESHOW_JOB_TYPE) {
+    result = job.status === "succeeded" ? await resolveSlideshowResult(job) : null;
   }
   const json: JobResponse = {
     id: job.id,

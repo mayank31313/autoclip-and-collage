@@ -10,6 +10,7 @@ import { CollageTemplateDefinition, TemplateId } from "@/lib/schemas/collageTemp
 import { defaultSlideCount, slideCountProblem } from "@/lib/planner/collage/polaroid/slides";
 import { PolaroidOptions, checkSlideLayout } from "@/lib/schemas/polaroid";
 import { PhotoWallPreset } from "@/lib/schemas/photoWall";
+import { SlideshowOptions, SlideshowSourceSchema } from "@/lib/schemas/slideshow";
 
 export const ALLOWED_UPLOAD_TYPES = [
   "video/mp4",
@@ -119,9 +120,28 @@ export const CreatePolaroidCollageBody = z
   });
 export type CreatePolaroidCollageBody = z.infer<typeof CreatePolaroidCollageBody>;
 
+export const CreateSlideshowCollageBody = z
+  .object({
+    sources: z.array(SlideshowSourceSchema).min(1),
+    mode: z.literal("slideshow"),
+    slideshow: SlideshowOptions,
+    format: z.literal("mp4"),
+    webhookUrl: HttpUrl.optional(),
+  })
+  .superRefine((body, ctx) => {
+    checkUnique(
+      ctx,
+      body.sources.map((s) => s.key),
+      "sources",
+      "source key",
+    );
+  });
+export type CreateSlideshowCollageBody = z.infer<typeof CreateSlideshowCollageBody>;
+
 export const CreateCollageBody = z.discriminatedUnion("mode", [
   CreateGridCollageBody,
   CreatePolaroidCollageBody,
+  CreateSlideshowCollageBody,
 ]);
 export type CreateCollageBody = z.infer<typeof CreateCollageBody>;
 
@@ -156,3 +176,5 @@ export const PolaroidJobResult = z.object({
   }),
 });
 export type PolaroidJobResult = z.infer<typeof PolaroidJobResult>;
+
+export { SlideshowJobResult } from "@/lib/schemas/slideshow";
