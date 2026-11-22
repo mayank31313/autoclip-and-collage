@@ -161,4 +161,126 @@ describe("slideshow schemas", () => {
     expect(SLIDESHOW_CANVAS_SIZE["9:16"]).toEqual({ w: 1080, h: 1920 });
     expect(SLIDESHOW_CANVAS_SIZE["1:1"]).toEqual({ w: 1080, h: 1080 });
   });
+
+  it("rejects a slide exceeding SLIDESHOW_MAX_SLIDE_SEC", () => {
+    const spec = {
+      version: 1,
+      canvas: { w: 1920, h: 1080 },
+      fps: 30,
+      transition: { type: "cut", durationSec: 0 },
+      slides: [
+        {
+          id: 0,
+          assetId: "a",
+          kind: "image",
+          startSec: 0,
+          endSec: 1000,
+          durationSec: 1000,
+          fit: "cover",
+        },
+      ],
+      masterDurationSec: 1000,
+    };
+    expect(SlideshowSpec.safeParse(spec).success).toBe(false);
+    expect(validateSlideshowSpec(spec as SlideshowSpec).map((i) => i.message)).toContain(
+      "durationSec must not exceed 30s",
+    );
+  });
+
+  it("rejects a masterDurationSec exceeding SLIDESHOW_MAX_DURATION_SEC", () => {
+    const spec: SlideshowSpec = {
+      version: 1,
+      canvas: { w: 1920, h: 1080 },
+      fps: 30,
+      transition: { type: "cut", durationSec: 0 },
+      slides: [
+        {
+          id: 0,
+          assetId: "a",
+          kind: "image",
+          startSec: 0,
+          endSec: 3,
+          durationSec: 3,
+          fit: "cover",
+        },
+      ],
+      masterDurationSec: 5000,
+    };
+    expect(SlideshowSpec.safeParse(spec).success).toBe(false);
+    expect(validateSlideshowSpec(spec).map((i) => i.message)).toContain(
+      "masterDurationSec must not exceed 300s",
+    );
+  });
+
+  it("rejects a transition exceeding SLIDESHOW_MAX_TRANSITION_SEC", () => {
+    const spec = {
+      version: 1,
+      canvas: { w: 1920, h: 1080 },
+      fps: 30,
+      transition: { type: "fade", durationSec: 10 },
+      slides: [
+        {
+          id: 0,
+          assetId: "a",
+          kind: "image",
+          startSec: 0,
+          endSec: 3,
+          durationSec: 3,
+          fit: "cover",
+        },
+      ],
+      masterDurationSec: 3,
+    };
+    expect(SlideshowSpec.safeParse(spec).success).toBe(false);
+    expect(validateSlideshowSpec(spec as SlideshowSpec).map((i) => i.message)).toContain(
+      "transition durationSec must not exceed 2s",
+    );
+  });
+
+  it("rejects a slide whose durationSec disagrees with endSec minus startSec", () => {
+    const spec: SlideshowSpec = {
+      version: 1,
+      canvas: { w: 1920, h: 1080 },
+      fps: 30,
+      transition: { type: "cut", durationSec: 0 },
+      slides: [
+        {
+          id: 0,
+          assetId: "a",
+          kind: "video",
+          startSec: 2,
+          endSec: 7,
+          durationSec: 3,
+          fit: "cover",
+        },
+      ],
+      masterDurationSec: 5,
+    };
+    expect(SlideshowSpec.safeParse(spec).success).toBe(false);
+    expect(validateSlideshowSpec(spec).map((i) => i.message)).toContain(
+      "durationSec must equal endSec minus startSec",
+    );
+  });
+
+  it("accepts an epsilon-safe durationSec match", () => {
+    const spec: SlideshowSpec = {
+      version: 1,
+      canvas: { w: 1920, h: 1080 },
+      fps: 30,
+      transition: { type: "cut", durationSec: 0 },
+      slides: [
+        {
+          id: 0,
+          assetId: "a",
+          kind: "video",
+          startSec: 2,
+          endSec: 7.0000001,
+          durationSec: 5,
+          fit: "cover",
+        },
+      ],
+      masterDurationSec: 5,
+    };
+    expect(validateSlideshowSpec(spec)).toHaveLength(0);
+  });
 });

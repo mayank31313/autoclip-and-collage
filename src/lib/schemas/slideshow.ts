@@ -25,9 +25,17 @@ export const SlideshowSourceSchema = z
       });
     }
     if (source.kind === "video" && source.startSec !== undefined && source.endSec === undefined) {
-      ctx.addIssue({ code: "custom", path: ["endSec"], message: "endSec is required with startSec" });
+      ctx.addIssue({
+        code: "custom",
+        path: ["endSec"],
+        message: "endSec is required with startSec",
+      });
     }
-    if (source.startSec !== undefined && source.endSec !== undefined && source.endSec <= source.startSec) {
+    if (
+      source.startSec !== undefined &&
+      source.endSec !== undefined &&
+      source.endSec <= source.startSec
+    ) {
       ctx.addIssue({ code: "custom", path: ["endSec"], message: "endSec must follow startSec" });
     }
   });
@@ -102,7 +110,10 @@ export const SlideshowSpec = z
     version: z.literal(1),
     canvas: z.object({ w: z.number().int().positive(), h: z.number().int().positive() }),
     fps: z.union([z.literal(24), z.literal(30)]),
-    transition: z.object({ type: z.enum(["cut", "fade", "wipe"]), durationSec: z.number().nonnegative() }),
+    transition: z.object({
+      type: z.enum(["cut", "fade", "wipe"]),
+      durationSec: z.number().nonnegative(),
+    }),
     slides: z
       .array(
         z.object({
