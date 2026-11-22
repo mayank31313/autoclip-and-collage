@@ -6,6 +6,7 @@ import {
   SlideshowSourceSchema,
   SlideshowSpec,
   SlideshowWorkerInput,
+  SlideshowWorkerResult,
 } from "@/lib/schemas/slideshow";
 import { validateSlideshowSpec } from "@/lib/planner/slideshow/validate";
 import { SLIDESHOW_CANVAS_SIZE } from "@/lib/planner/slideshow/defaults";
@@ -278,5 +279,91 @@ describe("slideshow schemas", () => {
       masterDurationSec: 5,
     };
     expect(validateSlideshowSpec(spec)).toHaveLength(0);
+  });
+
+  it("accepts a SlideshowSpec with more than 20 slides (no fixed cap downstream)", () => {
+    const slides = Array.from({ length: 21 }, (_, i) => ({
+      id: i,
+      assetId: `asset-${i}`,
+      kind: "image" as const,
+      startSec: 0,
+      endSec: 2,
+      durationSec: 2,
+      fit: "cover" as const,
+    }));
+    const spec = {
+      version: 1,
+      canvas: { w: 1920, h: 1080 },
+      fps: 30,
+      transition: { type: "cut", durationSec: 0 },
+      slides,
+      masterDurationSec: 42,
+    };
+    const parsed = SlideshowSpec.safeParse(spec);
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.slides).toHaveLength(21);
+    }
+  });
+
+  it("accepts a SlideshowWorkerInput with 21 sources (no fixed cap downstream)", () => {
+    const sources = Array.from({ length: 21 }, (_, i) => ({
+      assetId: `asset-${i}`,
+      kind: "image" as const,
+      durationSec: 2,
+      startSec: 0,
+      endSec: 2,
+      fit: "cover" as const,
+    }));
+    const parsed = SlideshowWorkerInput.safeParse({
+      sources,
+      slideshow: { canvas: "16:9", fps: 30, transition: "cut", transitionSec: 0 },
+    });
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.sources).toHaveLength(21);
+    }
+  });
+
+  it("accepts a SlideshowWorkerResult with 21 slideAssetIds (no fixed cap downstream)", () => {
+    const slideAssetIds = Array.from({ length: 21 }, (_, i) => `slide-asset-${i}`);
+    const parsed = SlideshowWorkerResult.safeParse({
+      masterAssetId: "master-asset",
+      zipAssetId: "zip-asset",
+      slideAssetIds,
+      width: 1920,
+      height: 1080,
+      fps: 30,
+      durationSec: 42,
+    });
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.slideAssetIds).toHaveLength(21);
+    }
+  });
+
+  it("accepts a SlideshowJobResult with 21 slides in output.slides (no fixed cap downstream)", () => {
+    const slides = Array.from({ length: 21 }, (_, i) => ({
+      index: i,
+      durationSec: 2,
+      url: `https://example.com/slide-${i}.mp4`,
+    }));
+    const parsed = SlideshowJobResult.safeParse({
+      output: {
+        width: 1920,
+        height: 1080,
+        fps: 30,
+        durationSec: 42,
+        format: "mp4",
+        masterUrl: "https://example.com/master.mp4",
+        zipUrl: "https://example.com/slideshow.zip",
+        slides,
+        expiresInSec: 300,
+      },
+    });
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.output.slides).toHaveLength(21);
+    }
   });
 });

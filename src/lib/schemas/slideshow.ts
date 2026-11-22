@@ -99,8 +99,7 @@ export const SlideshowJobResult = z.object({
           url: HttpUrl,
         }),
       )
-      .min(1)
-      .max(20),
+      .min(1),
     expiresInSec: z.number().int().positive(),
   }),
 });
@@ -126,8 +125,7 @@ export const SlideshowSpec = z
           fit: SlideshowFit,
         }),
       )
-      .min(1)
-      .max(20),
+      .min(1),
     masterDurationSec: z.number().positive(),
   })
   .superRefine((spec, ctx) => {
@@ -144,7 +142,7 @@ export const SlideshowSpec = z
 export const SlideshowWorkerResult = z.object({
   masterAssetId: z.string().min(1),
   zipAssetId: z.string().min(1),
-  slideAssetIds: z.array(z.string().min(1)).min(1).max(20),
+  slideAssetIds: z.array(z.string().min(1)).min(1),
   width: z.number().int().positive(),
   height: z.number().int().positive(),
   fps: z.union([z.literal(24), z.literal(30)]),
