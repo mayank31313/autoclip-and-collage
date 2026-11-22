@@ -313,7 +313,6 @@ function templateFields(values: CollageFormValues) {
 
 /** Builds the API request from form values and the object keys of the uploaded images. */
 export function buildCreateBody(values: CollageFormValues, keys: string[]): CreateCollageBody {
-  if (values.mode === "polaroid") return buildPolaroidBody(values, keys);
   if (values.slideshowSelected) {
     return buildSlideshowBody(
       {
@@ -326,6 +325,7 @@ export function buildCreateBody(values: CollageFormValues, keys: string[]): Crea
       keys,
     );
   }
+  if (values.mode === "polaroid") return buildPolaroidBody(values, keys);
   return CreateCollageBody.parse({
     images: keys,
     mode: "grid",

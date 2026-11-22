@@ -222,6 +222,27 @@ describe("buildCreateBody", () => {
       h: 1350,
     });
   });
+
+  it("prefers slideshow over polaroid when both are selected", () => {
+    const body = buildCreateBody(
+      values({
+        mode: "polaroid",
+        slideshowSelected: true,
+        slideshowSources: [
+          { kind: "image", durationSec: 3, startSec: NaN, endSec: NaN, fit: "cover" },
+          { kind: "video", durationSec: NaN, startSec: 1, endSec: 5, fit: "contain" },
+        ],
+      }),
+      ["k1", "k2"],
+    );
+    expect(body).toMatchObject({
+      mode: "slideshow",
+      sources: [
+        { key: "k1", kind: "image", durationSec: 3, fit: "cover" },
+        { key: "k2", kind: "video", startSec: 1, endSec: 5, fit: "contain" },
+      ],
+    });
+  });
 });
 
 describe("formatBytes", () => {
