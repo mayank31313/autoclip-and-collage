@@ -1,4 +1,4 @@
-import type { CollageTemplateId } from "@/lib/schemas/collage";
+import type { CollageTemplateSpec } from "@/lib/schemas/collage";
 
 export interface CanvasSize {
   w: number;
@@ -32,5 +32,5 @@ export interface GridPlanInput {
   canvas: CanvasSpec;
   images: readonly ImageStats[];
   style: "justified" | "template";
-  template?: CollageTemplateId;
+  template?: CollageTemplateSpec;
 }

@@ -1,10 +1,10 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import { uploadFiles } from "@/features/collage/api";
+import { uploadFiles, type ApiKey } from "@/features/collage/api";
 
 /** Per-file upload progress (whole percents, in selection order) plus an `upload` action. */
-export function useUpload(apiKey: string) {
+export function useUpload(apiKey: ApiKey) {
   const [progress, setProgress] = useState<number[]>([]);
 
   const upload = useCallback(

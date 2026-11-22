@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { gridTemplate } from "../fixtures/collageTemplates";
 
 const env = {
   DATABASE_URL: "postgres://u:p@localhost/d",
@@ -141,6 +142,23 @@ describe("GET /api/jobs/:id", () => {
   });
 });
 
+describe("GET /api/collages/templates", () => {
+  const call = async (headers: Record<string, string> = auth) => {
+    const { GET } = await import("@/app/api/collages/templates/route");
+    return GET(new Request("http://x/api/collages/templates", { headers }));
+  };
+  it("rejects missing credentials", async () => {
+    expect((await call({})).status).toBe(401);
+  });
+  it("lists the shipped templates with their cell layouts", async () => {
+    const res = await call();
+    expect(res.status).toBe(200);
+    const { templates } = (await res.json()) as { templates: { id: string; cells: unknown[] }[] };
+    expect(templates.map((t) => t.id)).toContain("hero-4");
+    expect(templates.find((t) => t.id === "hero-4")?.cells).toHaveLength(5);
+  });
+});
+
 describe("POST /api/collages", () => {
   const ownerId = "11111111-1111-1111-1111-111111111111";
   const key = (name: string, owner = ownerId) => `uploads/${owner}/up-1/${name}`;
@@ -232,9 +250,14 @@ describe("POST /api/collages", () => {
       );
     }
   });
-  it("rejects curated templates with the wrong image count", async () => {
+  it("rejects file templates with the wrong image count", async () => {
     const images = [key("a.png"), key("b.png"), key("c.png")];
     const res = await call(body(images, { style: "template", template: "grid-2x2" }));
+    await expectRejected(res, 400, "VALIDATION_FAILED");
+  });
+  it("rejects unknown template ids", async () => {
+    const images = [key("a.png"), key("b.png"), key("c.png"), key("d.png")];
+    const res = await call(body(images, { style: "template", template: "no-such-template" }));
     await expectRejected(res, 400, "VALIDATION_FAILED");
   });
 
@@ -284,11 +307,20 @@ describe("POST /api/collages", () => {
     expect(args.input).toEqual({
       sourceAssetIds: ["asset-a.JPG", "asset-b.jpeg", "asset-c.webp", "asset-d.png"],
       style: "template",
-      template: "grid-2x2",
+      template: expect.objectContaining({ id: "grid-2x2", cols: [1, 1], rows: [1, 1] }),
       canvas: { w: 1080, h: 1080, gap: 12, bg: "#ABCDEF" },
       format: "jpeg",
     });
     expect(JSON.stringify(args)).not.toContain("uploads/");
+  });
+  it("enqueues a custom template definition as given", async () => {
+    const customTemplate = gridTemplate(2, 1, "custom");
+    const res = await call(
+      body([key("a.png"), key("b.png")], { style: "template", customTemplate }),
+    );
+    expect(res.status).toBe(202);
+    const [args] = enqueueJob.mock.calls[0] as [{ input: Record<string, unknown> }];
+    expect(args.input.template).toEqual(customTemplate);
   });
   it("surfaces a key registered by another owner as a conflict", async () => {
     const { AppError } = await import("@/server/http/errors");

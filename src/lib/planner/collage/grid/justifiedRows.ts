@@ -22,8 +22,11 @@ export function rowCountFor(canvas: CanvasSize, count: number): number {
   return Math.min(Math.max(rows, 1), count);
 }
 
-/** Cell widths summing to `usableW`, each >= 1 px, proportional to `weights`. */
-function apportionWidths(usableW: number, weights: readonly number[]): number[] {
+/**
+ * Integer sizes summing to `usableW` px, each >= 1 px, proportional to `weights`
+ * (rounding remainder goes to earlier entries).
+ */
+export function apportionWidths(usableW: number, weights: readonly number[]): number[] {
   const n = weights.length;
   const spare = usableW - n;
   if (spare < 0) throw new RangeError(`cannot fit ${n} cells in ${usableW}px`);

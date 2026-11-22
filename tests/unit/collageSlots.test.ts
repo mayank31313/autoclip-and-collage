@@ -4,6 +4,7 @@ import { generateTemplateSlots } from "@/lib/planner/collage/grid/templates";
 import type { CanvasSize, ImageStats, Slot } from "@/lib/planner/collage/grid/types";
 import { planGridCollage } from "@/lib/planner/collage/plan";
 import { validateLayout } from "@/lib/planner/collage/validate";
+import { gridTemplate, heroFourTemplate } from "../fixtures/collageTemplates";
 
 const canvases: CanvasSize[] = [
   { w: 1080, h: 1350 },
@@ -88,17 +89,19 @@ describe("generateJustifiedSlots", () => {
 });
 
 describe("generateTemplateSlots", () => {
+  const definitions = [gridTemplate(2, 2), gridTemplate(3, 3), heroFourTemplate];
+
   it.each(canvases.flatMap((c) => gaps.map((g) => [c, g] as const)))(
-    "builds valid curated templates (%o gap %i)",
+    "builds valid definition templates (%o gap %i)",
     (canvas, gap) => {
-      expectValid(generateTemplateSlots(canvas, 4, "grid-2x2", gap), canvas, 4);
-      expectValid(generateTemplateSlots(canvas, 9, "grid-3x3", gap), canvas, 9);
-      expectValid(generateTemplateSlots(canvas, 5, "hero-4", gap), canvas, 5);
+      for (const t of definitions) {
+        expectValid(generateTemplateSlots(canvas, t.cells.length, t, gap), canvas, t.cells.length);
+      }
     },
   );
 
   it("builds equal 2x2 cells with exact geometry", () => {
-    const slots = generateTemplateSlots({ w: 100, h: 100 }, 4, "grid-2x2", 10);
+    const slots = generateTemplateSlots({ w: 100, h: 100 }, 4, gridTemplate(2, 2), 10);
     expect(slots.map(({ x, y, w, h }) => [x, y, w, h])).toEqual([
       [0, 0, 45, 45],
       [55, 0, 45, 45],
@@ -107,22 +110,10 @@ describe("generateTemplateSlots", () => {
     ]);
   });
 
-  it("places the hero cell on the left for landscape canvases", () => {
-    const slots = generateTemplateSlots({ w: 1000, h: 500 }, 5, "hero-4", 10);
-    expect(slots[0]).toMatchObject({ x: 0, y: 0, w: 495, h: 500, hero: true });
-    expect(slots.slice(1).every((s) => !s.hero && s.x >= 505)).toBe(true);
-  });
-
-  it("places the hero cell on top for portrait and square canvases", () => {
-    for (const canvas of [
-      { w: 1000, h: 1500 },
-      { w: 1000, h: 1000 },
-    ]) {
-      const slots = generateTemplateSlots(canvas, 5, "hero-4", 10);
-      expect(slots[0]).toMatchObject({ x: 0, y: 0, w: 1000, hero: true });
-      expect(slots[0].h).toBe(Math.ceil((canvas.h - 10) / 2));
-      expect(slots.slice(1).every((s) => s.y >= slots[0].h + 10)).toBe(true);
-    }
+  it("marks only the template's hero cell as hero", () => {
+    const slots = generateTemplateSlots({ w: 1000, h: 500 }, 5, heroFourTemplate, 10);
+    expect(slots[0]).toMatchObject({ x: 0, y: 0, h: 500, hero: true });
+    expect(slots.slice(1).every((s) => !s.hero && s.x >= slots[0].w + 10)).toBe(true);
   });
 
   it.each(canvases.flatMap((c) => gaps.map((g) => [c, g] as const)))(
@@ -140,11 +131,13 @@ describe("generateTemplateSlots", () => {
     },
   );
 
-  it("rejects wrong counts for curated templates and tiny canvases", () => {
-    expect(() => generateTemplateSlots(canvases[0], 5, "grid-2x2", 12)).toThrow(RangeError);
-    expect(() => generateTemplateSlots(canvases[0], 8, "grid-3x3", 12)).toThrow(RangeError);
-    expect(() => generateTemplateSlots(canvases[0], 4, "hero-4", 12)).toThrow(RangeError);
-    expect(() => generateTemplateSlots({ w: 20, h: 20 }, 5, "hero-4", 12)).toThrow(RangeError);
+  it("rejects wrong counts for definition templates and tiny canvases", () => {
+    expect(() => generateTemplateSlots(canvases[0], 5, gridTemplate(2, 2), 12)).toThrow(RangeError);
+    expect(() => generateTemplateSlots(canvases[0], 8, gridTemplate(3, 3), 12)).toThrow(RangeError);
+    expect(() => generateTemplateSlots(canvases[0], 4, heroFourTemplate, 12)).toThrow(RangeError);
+    expect(() => generateTemplateSlots({ w: 20, h: 20 }, 5, heroFourTemplate, 12)).toThrow(
+      RangeError,
+    );
   });
 });
 
@@ -156,7 +149,7 @@ describe("planGridCollage", () => {
       canvas,
       images: images(5),
       style: "template",
-      template: "hero-4",
+      template: heroFourTemplate,
     });
     expect(layout).toMatchObject({ version: 1, mode: "grid", style: "template", canvas });
     expect(layout.cells.every((c) => c.image !== null && !c.pinned)).toBe(true);
@@ -166,9 +159,14 @@ describe("planGridCollage", () => {
     expect(() => planGridCollage({ canvas, images: images(4), style: "template" })).toThrow();
   });
 
-  it("does not let a curated template accept a single image", () => {
+  it("does not let a definition template accept a single image", () => {
     expect(() =>
-      planGridCollage({ canvas, images: images(1), style: "template", template: "grid-2x2" }),
+      planGridCollage({
+        canvas,
+        images: images(1),
+        style: "template",
+        template: gridTemplate(2, 2),
+      }),
     ).toThrow(RangeError);
   });
 });

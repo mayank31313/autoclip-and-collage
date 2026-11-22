@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "id": "hero-4",
+  "name": "Hero + 4",
+  "description": "A large hero on the left with four tiles beside it.",
+  "cols": [2, 1, 1],
+  "rows": [1, 1],
+  "cells": [
+    {
+      "col": 0,
+      "row": 0,
+      "rowSpan": 2,
+      "hero": true
+    },
+    {
+      "col": 1,
+      "row": 0
+    },
+    {
+      "col": 2,
+      "row": 0
+    },
+    {
+      "col": 1,
+      "row": 1
+    },
+    {
+      "col": 2,
+      "row": 1
+    }
+  ]
+}

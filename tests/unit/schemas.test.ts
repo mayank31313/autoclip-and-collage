@@ -8,6 +8,7 @@ import {
   PresignBody,
 } from "@/lib/schemas/api";
 import { CollageWorkerInput, CollageWorkerResult } from "@/lib/schemas/collage";
+import { gridTemplate } from "../fixtures/collageTemplates";
 
 const clip = {
   src: "a1",
@@ -138,14 +139,9 @@ describe("CreateCollageBody", () => {
     expect(CreateCollageBody.safeParse({ ...valid, mode: "sequence" }).success).toBe(false);
     expect(CreateCollageBody.safeParse({ ...valid, style: "guillotine" }).success).toBe(false);
   });
-  it.each([
-    ["grid-2x2", 4],
-    ["grid-3x3", 9],
-    ["hero-4", 5],
-  ])("requires exactly the curated count for %s", (id, n) => {
-    expect(CreateCollageBody.safeParse(template(id, n)).success).toBe(true);
-    expect(CreateCollageBody.safeParse(template(id, n - 1)).success).toBe(false);
-    expect(CreateCollageBody.safeParse(template(id, n + 1)).success).toBe(false);
+  it("accepts slug template ids and leaves their image counts to the server", () => {
+    expect(CreateCollageBody.safeParse(template("grid-2x2", 3)).success).toBe(true);
+    expect(CreateCollageBody.safeParse(template("Grid 2x2", 4)).success).toBe(false);
   });
   it("accepts a rectangular template for any image count", () => {
     expect(CreateCollageBody.safeParse(template("rectangular", 1)).success).toBe(true);
@@ -154,7 +150,31 @@ describe("CreateCollageBody", () => {
   it("requires a template for template style and rejects one for justified", () => {
     expect(CreateCollageBody.safeParse({ ...valid, style: "template" }).success).toBe(false);
     expect(CreateCollageBody.safeParse({ ...valid, template: "rectangular" }).success).toBe(false);
-    expect(CreateCollageBody.safeParse(template("grid-4x4", 4)).success).toBe(false);
+    expect(
+      CreateCollageBody.safeParse({ ...valid, customTemplate: gridTemplate(1, 1) }).success,
+    ).toBe(false);
+  });
+  it("accepts a custom template whose cell count matches the images", () => {
+    const custom = (n: number) => ({
+      ...valid,
+      images: keys(n),
+      style: "template",
+      customTemplate: gridTemplate(2, 2, "custom"),
+    });
+    expect(CreateCollageBody.safeParse(custom(4)).success).toBe(true);
+    expect(CreateCollageBody.safeParse(custom(3)).success).toBe(false);
+    expect(CreateCollageBody.safeParse({ ...custom(4), template: "grid-2x2" }).success).toBe(false);
+    const overlapping = {
+      ...custom(2),
+      customTemplate: {
+        ...gridTemplate(2, 1),
+        cells: [
+          { col: 0, row: 0, colSpan: 2 },
+          { col: 1, row: 0 },
+        ],
+      },
+    };
+    expect(CreateCollageBody.safeParse(overlapping).success).toBe(false);
   });
   it("validates canvas dimensions, gap, and background", () => {
     const withCanvas = (canvas: object) => CreateCollageBody.safeParse({ ...valid, canvas });
@@ -200,9 +220,13 @@ describe("CollageWorkerInput", () => {
       false,
     );
   });
-  it("enforces style/template consistency and curated counts", () => {
+  it("enforces style/template consistency and template cell counts", () => {
+    const grid = gridTemplate(2, 2);
     expect(CollageWorkerInput.safeParse({ ...input, style: "template" }).success).toBe(false);
     expect(CollageWorkerInput.safeParse({ ...input, template: "rectangular" }).success).toBe(false);
+    expect(
+      CollageWorkerInput.safeParse({ ...input, style: "template", template: grid }).success,
+    ).toBe(false);
     expect(
       CollageWorkerInput.safeParse({ ...input, style: "template", template: "grid-2x2" }).success,
     ).toBe(false);
@@ -211,7 +235,7 @@ describe("CollageWorkerInput", () => {
         ...input,
         sourceAssetIds: ["a1", "a2", "a3", "a4"],
         style: "template",
-        template: "grid-2x2",
+        template: grid,
       }).success,
     ).toBe(true);
   });

@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { ApiError, fetchJob } from "@/features/collage/api";
+import { ApiError, fetchJob, type ApiKey } from "@/features/collage/api";
 import { jobRefetchInterval } from "@/features/collage/job";
 import type { JobResponse } from "@/lib/schemas/job";
 
@@ -17,7 +17,7 @@ function shouldRetry(failureCount: number, error: unknown): boolean {
  * Polls `GET /api/jobs/:id` until the job is terminal. The API key is used only in the request
  * closure, so it never appears in the query key.
  */
-export function useJob(apiKey: string, jobId: string | null) {
+export function useJob(apiKey: ApiKey, jobId: string | null) {
   const query = useQuery<JobResponse, Error>({
     queryKey: ["collage-job", jobId],
     queryFn: () => fetchJob(apiKey, jobId ?? ""),

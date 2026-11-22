@@ -50,6 +50,19 @@ describe("api client", () => {
     });
   });
 
+  it("omits the authorization header when the server's studio key is used", async () => {
+    const fn = stubFetch(jsonResponse(202, { jobId: "j1" }));
+    const body = {
+      images: ["k"],
+      mode: "grid",
+      style: "justified",
+      canvas: { w: 10, h: 10, gap: 12, bg: "#ffffff" },
+      format: "png",
+    } satisfies CreateCollageBody;
+    await createCollage(null, body);
+    expect(authHeader(fn.mock.calls[0] ?? [])).toBeNull();
+  });
+
   it("never places the key in the URL or body", async () => {
     const fn = stubFetch(jsonResponse(202, { jobId: "j1" }));
     const body = {

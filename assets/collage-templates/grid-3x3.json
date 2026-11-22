@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "id": "grid-3x3",
+  "name": "3×3 grid",
+  "description": "Nine equal tiles.",
+  "cols": [1, 1, 1],
+  "rows": [1, 1, 1],
+  "cells": [
+    {
+      "col": 0,
+      "row": 0
+    },
+    {
+      "col": 1,
+      "row": 0
+    },
+    {
+      "col": 2,
+      "row": 0
+    },
+    {
+      "col": 0,
+      "row": 1
+    },
+    {
+      "col": 1,
+      "row": 1
+    },
+    {
+      "col": 2,
+      "row": 1
+    },
+    {
+      "col": 0,
+      "row": 2
+    },
+    {
+      "col": 1,
+      "row": 2
+    },
+    {
+      "col": 2,
+      "row": 2
+    }
+  ]
+}

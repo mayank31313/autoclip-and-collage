@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import { solveAssignment } from "@/lib/planner/collage/hungarian";
 import { planGridCollage } from "@/lib/planner/collage/plan";
 import { LayoutSpec } from "@/lib/schemas/layout";
+import { CollageTemplateDefinition } from "@/lib/schemas/collageTemplate";
+import { heroFourTemplate } from "../fixtures/collageTemplates";
 
 function bruteForceMinimum(costs: number[][]): number {
   const rows = costs.length;
@@ -137,27 +139,77 @@ describe("planGridCollage (property)", () => {
     );
   });
 
-  it("assigns hero-4 and fixed-count grids exactly once", () => {
-    const counts = { "grid-2x2": 4, "grid-3x3": 9, "hero-4": 5 } as const;
+  it("builds valid, deterministic layouts for arbitrary weighted-grid templates", () => {
+    const template = fc
+      .record({
+        cols: fc.array(fc.integer({ min: 1, max: 5 }), { minLength: 1, maxLength: 6 }),
+        rows: fc.array(fc.integer({ min: 1, max: 5 }), { minLength: 1, maxLength: 6 }),
+        hero: fc.boolean(),
+      })
+      .map(({ cols, rows, hero }) => {
+        const merge = hero && cols.length > 1 && rows.length > 1;
+        const cells = rows.flatMap((_, row) =>
+          cols.map((_, col) => ({ col, row, colSpan: 1, rowSpan: 1, hero: false })),
+        );
+        const kept = merge
+          ? [
+              { col: 0, row: 0, colSpan: 2, rowSpan: 2, hero: true },
+              ...cells.filter((c) => c.col > 1 || c.row > 1),
+            ]
+          : cells;
+        return CollageTemplateDefinition.parse({
+          version: 1,
+          id: "t",
+          name: "t",
+          cols,
+          rows,
+          cells: kept,
+        });
+      });
     fc.assert(
       fc.property(
+        template,
         dimensions,
-        fc.constantFrom("grid-2x2", "grid-3x3", "hero-4"),
-        (dims, template) => {
+        fc.integer({ min: 300, max: 4000 }),
+        fc.integer({ min: 300, max: 4000 }),
+        fc.constantFrom(0, 12),
+        (t, dims, w, h, gap) => {
           const images = toImages(
-            Array.from({ length: counts[template] }, (_, i) => dims[i % dims.length]),
+            Array.from({ length: t.cells.length }, (_, i) => dims[i % dims.length]),
           );
-          const layout = planGridCollage({
-            canvas: { w: 1080, h: 1080, gap: 12, bg: "#ffffff" },
+          const input = {
+            canvas: { w, h, gap, bg: "#ffffff" },
             images,
-            style: "template",
-            template,
-          });
+            style: "template" as const,
+            template: t,
+          };
+          const layout = planGridCollage(input);
+          expect(LayoutSpec.safeParse(layout).success).toBe(true);
           expect(layout.cells.map((c) => c.image).sort()).toEqual(
             images.map((i) => i.assetId).sort(),
           );
+          expect(planGridCollage(input)).toEqual(layout);
         },
       ),
+    );
+  });
+
+  it("assigns every image exactly once for a hero template", () => {
+    fc.assert(
+      fc.property(dimensions, (dims) => {
+        const images = toImages(
+          Array.from({ length: heroFourTemplate.cells.length }, (_, i) => dims[i % dims.length]),
+        );
+        const layout = planGridCollage({
+          canvas: { w: 1080, h: 1080, gap: 12, bg: "#ffffff" },
+          images,
+          style: "template",
+          template: heroFourTemplate,
+        });
+        expect(layout.cells.map((c) => c.image).sort()).toEqual(
+          images.map((i) => i.assetId).sort(),
+        );
+      }),
     );
   });
 

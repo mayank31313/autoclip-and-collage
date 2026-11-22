@@ -13,6 +13,9 @@ export class ApiError extends Error {
   }
 }
 
+/** A user-entered API key, or null to let the server attach its configured studio key. */
+export type ApiKey = string | null;
+
 /** Reports the upload progress of one file as a fraction in 0..1. */
 export type PutProgress = (fraction: number) => void;
 export type PutObject = (url: string, file: File, onProgress: PutProgress) => Promise<void>;
@@ -32,12 +35,13 @@ async function errorFrom(res: Response): Promise<ApiError> {
 }
 
 async function request<T extends z.ZodType>(
-  apiKey: string,
+  apiKey: ApiKey,
   path: string,
   schema: T,
   init: { method: "GET" | "POST"; body?: unknown } = { method: "GET" },
 ): Promise<z.infer<T>> {
-  const headers = new Headers({ authorization: `Bearer ${apiKey}` });
+  const headers = new Headers();
+  if (apiKey !== null) headers.set("authorization", `Bearer ${apiKey}`);
   if (init.body !== undefined) headers.set("content-type", "application/json");
   const res = await fetch(path, {
     method: init.method,
@@ -51,16 +55,16 @@ async function request<T extends z.ZodType>(
   return parsed.data;
 }
 
-export function presignUpload(apiKey: string, file: File): Promise<PresignResponse> {
+export function presignUpload(apiKey: ApiKey, file: File): Promise<PresignResponse> {
   const body = { filename: file.name, contentType: file.type, sizeBytes: file.size };
   return request(apiKey, "/api/uploads/presign", PresignResponse, { method: "POST", body });
 }
 
-export function createCollage(apiKey: string, body: CreateCollageBody) {
+export function createCollage(apiKey: ApiKey, body: CreateCollageBody) {
   return request(apiKey, "/api/collages", CreateCollageResponse, { method: "POST", body });
 }
 
-export function fetchJob(apiKey: string, jobId: string): Promise<JobResponse> {
+export function fetchJob(apiKey: ApiKey, jobId: string): Promise<JobResponse> {
   return request(apiKey, `/api/jobs/${encodeURIComponent(jobId)}`, JobResponse);
 }
 
@@ -92,7 +96,7 @@ export const putObject: PutObject = (url, file, onProgress) =>
  * order. Per-file progress is reported as whole percents.
  */
 export async function uploadFiles(
-  apiKey: string,
+  apiKey: ApiKey,
   files: File[],
   onProgress: (percents: number[]) => void,
   put: PutObject = putObject,

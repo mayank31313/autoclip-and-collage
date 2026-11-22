@@ -2,12 +2,14 @@ import { describe, expect, it } from "vitest";
 import {
   COLLAGE_FORM_DEFAULTS,
   buildCreateBody,
+  buildGridTemplate,
   compatibleTemplates,
   createCollageFormSchema,
   formatBytes,
   type CollageFormValues,
 } from "@/features/collage/form";
 import type { CollageLimits } from "@/features/collage/limits";
+import { gridTemplate, heroFourTemplate } from "../fixtures/collageTemplates";
 
 const MB = 1024 * 1024;
 const limits: CollageLimits = {
@@ -16,7 +18,8 @@ const limits: CollageLimits = {
   maxCanvasPixels: 4_000_000,
   maxCanvasDimension: 3000,
 };
-const schema = createCollageFormSchema(limits);
+const templates = [gridTemplate(2, 2), heroFourTemplate];
+const schema = createCollageFormSchema(limits, templates);
 
 function file(name: string, type = "image/png", size = 10): File {
   return new File([new Uint8Array(size)], name, { type });
@@ -96,26 +99,67 @@ describe("canvas validation", () => {
   });
 
   it("rejects presets that exceed configured limits", () => {
-    const tight = createCollageFormSchema({ ...limits, maxCanvasDimension: 1000 });
+    const tight = createCollageFormSchema({ ...limits, maxCanvasDimension: 1000 }, templates);
     expect(tight.safeParse(values({ preset: "landscape" })).success).toBe(false);
   });
 });
 
 describe("template compatibility", () => {
   it("offers only templates matching the image count, plus rectangular", () => {
-    expect(compatibleTemplates(4)).toEqual(["grid-2x2", "rectangular"]);
-    expect(compatibleTemplates(5)).toEqual(["hero-4", "rectangular"]);
-    expect(compatibleTemplates(9)).toEqual(["grid-3x3", "rectangular"]);
-    expect(compatibleTemplates(7)).toEqual(["rectangular"]);
+    expect(compatibleTemplates(templates, 4)).toEqual(["grid-2x2", "rectangular"]);
+    expect(compatibleTemplates(templates, 5)).toEqual(["hero-4", "rectangular"]);
+    expect(compatibleTemplates(templates, 7)).toEqual(["rectangular"]);
   });
 
-  it("rejects a curated template with the wrong count", () => {
+  it("rejects a template with the wrong count", () => {
     const r = issues(values({ style: "template", template: "grid-2x2" }));
-    expect(r[0]).toMatchObject({ path: "template" });
+    expect(r[0]).toMatchObject({ path: "template", message: "grid-2x2 needs exactly 4 images" });
+  });
+
+  it("rejects unknown template ids", () => {
+    expect(issues(values({ style: "template", template: "nope" }))[0]).toMatchObject({
+      path: "template",
+    });
   });
 
   it("ignores the template value for justified style", () => {
-    expect(issues(values({ style: "justified", template: "grid-3x3" }))).toEqual([]);
+    expect(issues(values({ style: "justified", template: "grid-2x2" }))).toEqual([]);
+  });
+});
+
+describe("custom templates", () => {
+  const twoByOne = JSON.stringify(gridTemplate(2, 1, "custom"));
+  const files = [file("a.png"), file("b.png")];
+
+  it("accepts valid JSON whose cell count matches the images", () => {
+    expect(issues(values({ style: "custom", customTemplate: twoByOne, files }))).toEqual([]);
+  });
+
+  it("reports malformed JSON, invalid templates and count mismatches on customTemplate", () => {
+    const bad = (customTemplate: string, f = files) =>
+      issues(values({ style: "custom", customTemplate, files: f }))[0];
+    expect(bad("{ nope")).toMatchObject({ path: "customTemplate", message: "Enter valid JSON" });
+    expect(bad(JSON.stringify({ ...gridTemplate(2, 1), cols: [] }))).toMatchObject({
+      path: "customTemplate",
+    });
+    expect(bad(twoByOne, [file("a.png")])).toMatchObject({
+      path: "customTemplate",
+      message: "This layout needs exactly 2 images",
+    });
+  });
+
+  it("ignores custom JSON for other styles", () => {
+    expect(issues(values({ style: "justified", customTemplate: "{ nope" }))).toEqual([]);
+  });
+
+  it("builds equal grids with an optional 2x2 hero in the top-left", () => {
+    expect(buildGridTemplate({ rows: 2, cols: 3, hero: false }).cells).toHaveLength(6);
+    const hero = buildGridTemplate({ rows: 3, cols: 3, hero: true });
+    expect(hero.cells[0]).toEqual({ col: 0, row: 0, colSpan: 2, rowSpan: 2, hero: true });
+    expect(hero.cells).toHaveLength(6);
+    expect(buildGridTemplate({ rows: 1, cols: 3, hero: true }).cells.some((c) => c.hero)).toBe(
+      false,
+    );
   });
 });
 
@@ -128,6 +172,17 @@ describe("buildCreateBody", () => {
       canvas: { w: 1080, h: 1080, gap: 12, bg: "#ffffff" },
       format: "png",
     });
+  });
+
+  it("sends a custom layout as an inline template definition", () => {
+    const customTemplate = gridTemplate(2, 1, "custom");
+    const body = buildCreateBody(
+      values({ style: "custom", customTemplate: JSON.stringify(customTemplate) }),
+      ["k1", "k2"],
+    );
+    expect(body).toMatchObject({ style: "template", customTemplate });
+    if (body.mode !== "grid") throw new Error("expected grid body");
+    expect(body.template).toBeUndefined();
   });
 
   it("includes the template only for template style and uses custom sizes", () => {
@@ -151,7 +206,9 @@ describe("buildCreateBody", () => {
   });
 
   it("uses the preset's dimensions", () => {
-    expect(buildCreateBody(values({ preset: "portrait" }), ["k1"]).canvas).toMatchObject({
+    const body = buildCreateBody(values({ preset: "portrait" }), ["k1"]);
+    if (body.mode !== "grid") throw new Error("expected grid body");
+    expect(body.canvas).toMatchObject({
       w: 1080,
       h: 1350,
     });

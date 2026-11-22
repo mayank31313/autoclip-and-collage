@@ -2,11 +2,13 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation } from "@tanstack/react-query";
+import { ArrowRight, FileImage, ImagePlus, KeyRound, ShieldCheck, Sparkles } from "lucide-react";
 import { useMemo, useState, type ChangeEvent, type FormEvent } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { CollageOptionsFields } from "@/components/collage/CollageOptionsFields";
 import { CollageFailure, CollageProgress, CollageResult } from "@/components/collage/CollageStatus";
 import { fieldErrorClass, inputClass, legendClass } from "@/components/collage/fieldStyles";
+import { ModeSwitch, PolaroidOptionsFields } from "@/components/collage/PolaroidOptionsFields";
 import { Button } from "@/components/ui/button";
 import { createCollage } from "@/features/collage/api";
 import {
@@ -24,6 +26,7 @@ import { createSubmissionGuard } from "@/features/collage/submissionGuard";
 import { useJob } from "@/features/collage/useJob";
 import { useUpload } from "@/features/collage/useUpload";
 import type { JobResponse } from "@/lib/schemas/job";
+import type { CollageTemplateDefinition } from "@/lib/schemas/collageTemplate";
 
 /** Collects every message from an RHF error tree (root, array and per-index entries). */
 function messagesOf(error: unknown): string[] {
@@ -52,20 +55,30 @@ function collageFailure(
   return null;
 }
 
-export function CollageCreateForm({ limits }: { limits: CollageLimits }) {
+interface Props {
+  limits: CollageLimits;
+  templates: readonly CollageTemplateDefinition[];
+  /** True when the server attaches its configured studio key to same-origin requests. */
+  studioKey: boolean;
+}
+
+export function CollageCreateForm({ limits, templates, studioKey }: Props) {
   // Credentials and uploaded keys live only in component memory: never stored, logged or in URLs.
   const [apiKey, setApiKey] = useState("");
+  const [useStudioKey, setUseStudioKey] = useState(studioKey);
   const [keyError, setKeyError] = useState<string | null>(null);
   const [uploadedKeys, setUploadedKeys] = useState<string[] | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
-  const key = apiKey.trim();
+  // null means "no Authorization header": the server falls back to the studio key.
+  const key = useStudioKey ? null : apiKey.trim();
 
-  const schema = useMemo(() => createCollageFormSchema(limits), [limits]);
+  const schema = useMemo(() => createCollageFormSchema(limits, templates), [limits, templates]);
   const form = useForm<CollageFormValues>({
     resolver: zodResolver(schema),
     defaultValues: COLLAGE_FORM_DEFAULTS,
   });
   const files = useWatch({ control: form.control, name: "files" });
+  const mode = useWatch({ control: form.control, name: "mode" });
   const { upload, progress, reset: resetUpload } = useUpload(key);
   const { job, error: jobError } = useJob(key, jobId);
 
@@ -87,12 +100,12 @@ export function CollageCreateForm({ limits }: { limits: CollageLimits }) {
   });
 
   const submit = form.handleSubmit((values) => {
-    if (!key) return;
+    if (key === "") return;
     create.mutate({ values, token: guard.begin() });
   });
 
   function run() {
-    setKeyError(key ? null : "Enter your API key");
+    setKeyError(key === "" ? "Enter your API key" : null);
     void submit();
   }
 
@@ -104,7 +117,11 @@ export function CollageCreateForm({ limits }: { limits: CollageLimits }) {
   function onFilesChange(event: ChangeEvent<HTMLInputElement>) {
     const selected = Array.from(event.target.files ?? []);
     form.setValue("files", selected, { shouldValidate: true, shouldDirty: true });
-    if (!compatibleTemplates(selected.length).includes(form.getValues("template"))) {
+    form.setValue(
+      "captions",
+      selected.map(() => ""),
+    );
+    if (!compatibleTemplates(templates, selected.length).includes(form.getValues("template"))) {
       form.setValue("template", "rectangular");
     }
     guard.invalidate();
@@ -114,12 +131,22 @@ export function CollageCreateForm({ limits }: { limits: CollageLimits }) {
     create.reset();
   }
 
-  function onKeyChange(event: ChangeEvent<HTMLInputElement>) {
-    setApiKey(event.target.value);
-    setKeyError(null);
+  function forgetUploads() {
     // Uploaded objects belong to the key's owner, so a different key must upload again.
     guard.invalidate();
     setUploadedKeys(null);
+  }
+
+  function onKeyChange(event: ChangeEvent<HTMLInputElement>) {
+    setApiKey(event.target.value);
+    setKeyError(null);
+    forgetUploads();
+  }
+
+  function toggleStudioKey() {
+    setUseStudioKey((v) => !v);
+    setKeyError(null);
+    forgetUploads();
   }
 
   const uploading = create.isPending && uploadedKeys === null;
@@ -131,46 +158,109 @@ export function CollageCreateForm({ limits }: { limits: CollageLimits }) {
     : 0;
 
   return (
-    <form onSubmit={onSubmit} noValidate className="space-y-6">
-      <fieldset disabled={create.isPending} className="m-0 min-w-0 space-y-6 border-0 p-0">
-        <div>
+    <form onSubmit={onSubmit} noValidate className="space-y-5">
+      <fieldset disabled={create.isPending} className="m-0 min-w-0 space-y-5 border-0 p-0">
+        <section className="rounded-2xl border border-border bg-card p-5 shadow-sm sm:p-6">
+          <div className="mb-5 flex items-start gap-3">
+            <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-muted text-xs font-semibold text-muted-foreground">
+              01
+            </span>
+            <div>
+              <h2 className="text-base font-semibold">Connect your studio</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Use your API key to create a collage.
+              </p>
+            </div>
+          </div>
           <label htmlFor="collage-api-key" className={legendClass}>
             API key
           </label>
-          <input
-            id="collage-api-key"
-            type="password"
-            autoComplete="off"
-            spellCheck={false}
-            className={inputClass}
-            value={apiKey}
-            onChange={onKeyChange}
-            aria-invalid={keyError ? true : undefined}
-            aria-describedby="collage-api-key-note"
-          />
-          <p id="collage-api-key-note" className="mt-1 text-xs text-muted-foreground">
-            Kept in this page&apos;s memory only; it is never stored.
-          </p>
+          {useStudioKey ? (
+            <input
+              id="collage-api-key"
+              type="text"
+              readOnly
+              className={`${inputClass} bg-muted/50 text-muted-foreground`}
+              value="Studio key · managed by the server"
+              aria-describedby="collage-api-key-note"
+            />
+          ) : (
+            <input
+              id="collage-api-key"
+              type="password"
+              autoComplete="off"
+              spellCheck={false}
+              className={inputClass}
+              value={apiKey}
+              onChange={onKeyChange}
+              aria-invalid={keyError ? true : undefined}
+              aria-describedby="collage-api-key-note"
+            />
+          )}
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+            <p
+              id="collage-api-key-note"
+              className="flex items-center gap-1.5 text-xs text-muted-foreground"
+            >
+              <ShieldCheck className="size-3.5 shrink-0" aria-hidden="true" />
+              {useStudioKey
+                ? "Filled in by the server; the key never reaches your browser."
+                : "Kept in this page's memory only; it is never stored."}
+            </p>
+            {studioKey && (
+              <button
+                type="button"
+                onClick={toggleStudioKey}
+                className="inline-flex items-center gap-1 rounded-md text-xs font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+              >
+                <KeyRound className="size-3.5" aria-hidden="true" />
+                {useStudioKey ? "Use a different key" : "Use the studio key"}
+              </button>
+            )}
+          </div>
           {keyError && <p className={fieldErrorClass}>{keyError}</p>}
-        </div>
+        </section>
 
-        <div>
+        <section className="rounded-2xl border border-border bg-card p-5 shadow-sm sm:p-6">
+          <div className="mb-5 flex items-start gap-3">
+            <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-muted text-xs font-semibold text-muted-foreground">
+              02
+            </span>
+            <div>
+              <h2 className="text-base font-semibold">Add your images</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Pick the moments you want to bring together.
+              </p>
+            </div>
+          </div>
           <label htmlFor="collage-images" className={legendClass}>
             Images
           </label>
-          <input
-            id="collage-images"
-            type="file"
-            multiple
-            accept={IMAGE_TYPES.join(",")}
-            className={inputClass}
-            onChange={onFilesChange}
-            aria-invalid={fileErrors.length ? true : undefined}
-            aria-describedby="collage-images-note collage-images-errors"
-          />
-          <p id="collage-images-note" className="mt-1 text-xs text-muted-foreground">
-            1 to {limits.maxImages} JPEG, PNG, or WebP files, up to{" "}
-            {formatBytes(limits.maxImageUploadBytes)} each.
+          <div className="mt-2 rounded-xl border border-dashed border-input bg-muted/30 p-3 transition-colors focus-within:border-ring focus-within:bg-muted/50 sm:p-4">
+            <div className="mb-3 flex items-center gap-3">
+              <span className="grid size-9 place-items-center rounded-lg bg-background text-muted-foreground">
+                <ImagePlus className="size-4" aria-hidden="true" />
+              </span>
+              <span>
+                <span className="block text-sm font-medium">Choose images from your device</span>
+                <span className="mt-0.5 block text-xs text-muted-foreground">
+                  JPEG, PNG, or WebP
+                </span>
+              </span>
+            </div>
+            <input
+              id="collage-images"
+              type="file"
+              multiple
+              accept={IMAGE_TYPES.join(",")}
+              className="block w-full cursor-pointer text-sm text-muted-foreground file:mr-3 file:cursor-pointer file:rounded-lg file:border-0 file:bg-primary file:px-3 file:py-2 file:text-xs file:font-semibold file:text-primary-foreground hover:file:bg-primary/85 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+              onChange={onFilesChange}
+              aria-invalid={fileErrors.length ? true : undefined}
+              aria-describedby="collage-images-note collage-images-errors"
+            />
+          </div>
+          <p id="collage-images-note" className="mt-2 text-xs leading-5 text-muted-foreground">
+            1 to {limits.maxImages} images, up to {formatBytes(limits.maxImageUploadBytes)} each.
           </p>
           <ul id="collage-images-errors" className={fieldErrorClass}>
             {fileErrors.map((message) => (
@@ -178,23 +268,56 @@ export function CollageCreateForm({ limits }: { limits: CollageLimits }) {
             ))}
           </ul>
           {files.length > 0 && (
-            <ul className="mt-2 space-y-1 text-sm">
-              {files.map((file, i) => (
-                <li key={`${i}-${file.name}`}>
-                  {file.name} ({formatBytes(file.size)})
-                  {uploading && progress[i] !== undefined ? ` – ${progress[i]}% uploaded` : ""}
-                </li>
-              ))}
-            </ul>
+            <div className="mt-4 rounded-xl bg-muted/50 p-3">
+              <p className="mb-2 text-xs font-semibold text-muted-foreground">
+                {files.length} {files.length === 1 ? "image" : "images"} selected
+              </p>
+              <ul aria-label="Selected images" className="space-y-2">
+                {files.map((file, i) => (
+                  <li key={`${i}-${file.name}`} className="flex min-w-0 items-center gap-2 text-sm">
+                    <FileImage
+                      className="size-4 shrink-0 text-muted-foreground"
+                      aria-hidden="true"
+                    />
+                    <span className="min-w-0 flex-1 truncate">{file.name}</span>
+                    <span className="shrink-0 text-xs text-muted-foreground">
+                      {formatBytes(file.size)}
+                      {uploading && progress[i] !== undefined ? ` | ${progress[i]}%` : ""}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
           )}
-        </div>
+        </section>
 
-        <CollageOptionsFields form={form} limits={limits} fileCount={files.length} />
+        <ModeSwitch form={form} />
+        {mode === "polaroid" ? (
+          <PolaroidOptionsFields form={form} files={files} />
+        ) : (
+          <CollageOptionsFields
+            form={form}
+            limits={limits}
+            templates={templates}
+            fileCount={files.length}
+          />
+        )}
       </fieldset>
 
-      <Button type="submit" disabled={create.isPending || polling}>
-        Create collage
-      </Button>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <Button
+          type="submit"
+          className="h-11 w-full justify-center rounded-xl px-5 sm:w-auto"
+          disabled={create.isPending || polling}
+        >
+          <Sparkles className="size-4" aria-hidden="true" />
+          Create collage
+          <ArrowRight className="size-4" aria-hidden="true" />
+        </Button>
+        <p className="text-center text-xs text-muted-foreground sm:text-left">
+          You can preview it before downloading.
+        </p>
+      </div>
 
       <div aria-live="polite" className="space-y-4">
         {uploading && <CollageProgress label="Uploading images" value={uploadPercent} />}

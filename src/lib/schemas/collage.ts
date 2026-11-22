@@ -1,7 +1,12 @@
 import { z } from "zod";
+import { CollageTemplateDefinition, RECTANGULAR_TEMPLATE_ID } from "./collageTemplate";
 
-export const CollageTemplateId = z.enum(["grid-2x2", "grid-3x3", "hero-4", "rectangular"]);
-export type CollageTemplateId = z.infer<typeof CollageTemplateId>;
+/** A resolved template: the built-in any-count layout or a weighted-grid definition. */
+export const CollageTemplateSpec = z.union([
+  z.literal(RECTANGULAR_TEMPLATE_ID),
+  CollageTemplateDefinition,
+]);
+export type CollageTemplateSpec = z.infer<typeof CollageTemplateSpec>;
 
 export const CollageStyle = z.enum(["justified", "template"]);
 export type CollageStyle = z.infer<typeof CollageStyle>;
@@ -23,17 +28,10 @@ export const CollageCanvas = z.object({
 });
 export type CollageCanvas = z.infer<typeof CollageCanvas>;
 
-/** Exact image counts for curated templates; `rectangular` accepts any count. */
-export const TEMPLATE_IMAGE_COUNTS = {
-  "grid-2x2": 4,
-  "grid-3x3": 9,
-  "hero-4": 5,
-} as const satisfies Partial<Record<CollageTemplateId, number>>;
-
-/** Reports style/template consistency and curated-count violations on `ctx`. */
+/** Reports style/template consistency and template image-count violations on `ctx`. */
 export function checkStyleTemplate(
   ctx: z.RefinementCtx,
-  value: { style: CollageStyle; template?: CollageTemplateId | undefined },
+  value: { style: CollageStyle; template?: CollageTemplateSpec | undefined },
   imageCount: number,
 ): void {
   const { style, template } = value;
@@ -54,12 +52,13 @@ export function checkStyleTemplate(
     });
     return;
   }
-  const required = template === "rectangular" ? undefined : TEMPLATE_IMAGE_COUNTS[template];
-  if (required !== undefined && imageCount !== required) {
+  if (template === RECTANGULAR_TEMPLATE_ID) return;
+  const required = template.cells.length;
+  if (imageCount !== required) {
     ctx.addIssue({
       code: "custom",
       path: ["template"],
-      message: `${template} requires exactly ${required} images`,
+      message: `${template.id} requires exactly ${required} images`,
     });
   }
 }
@@ -80,7 +79,7 @@ export const CollageWorkerInput = z
   .object({
     sourceAssetIds: z.array(z.string().min(1)).min(1),
     style: CollageStyle,
-    template: CollageTemplateId.optional(),
+    template: CollageTemplateSpec.optional(),
     canvas: CollageCanvas,
     format: CollageFormat,
   })

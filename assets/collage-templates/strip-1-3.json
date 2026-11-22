@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "id": "strip-1-3",
+  "name": "1 + 3 strip",
+  "description": "A wide banner above a strip of three tiles.",
+  "cols": [1, 1, 1],
+  "rows": [2, 1],
+  "cells": [
+    {
+      "col": 0,
+      "row": 0,
+      "colSpan": 3,
+      "hero": true
+    },
+    {
+      "col": 0,
+      "row": 1
+    },
+    {
+      "col": 1,
+      "row": 1
+    },
+    {
+      "col": 2,
+      "row": 1
+    }
+  ]
+}

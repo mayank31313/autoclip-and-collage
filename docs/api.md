@@ -8,6 +8,13 @@ creation is not yet implemented.
 Create a key with `npm run create-key -- <name>` and store it securely; it is displayed only once.
 Except for health, requests require `Authorization: Bearer <key>`. Jobs are scoped to the key owner.
 
+**Studio key (optional).** If `STUDIO_API_KEY` is set to an issued key, the web UI pre-fills the
+API key field and sends no `Authorization` header; the server then authenticates the request with
+the studio key. The fallback applies only when the header is absent and the browser reports
+`Sec-Fetch-Site: same-origin`, and the key itself is never sent to the browser. Any client can set
+that header, so anyone who can reach the server can act as the studio key's owner: use it only for
+trusted, self-hosted deployments.
+
 Errors use this envelope; `details` is always present (an empty object when there is nothing to add):
 
 ```json
@@ -95,7 +102,7 @@ Justified rows (the default layout; `template` must be omitted):
 }
 ```
 
-Curated template (`template` is required with `style: "template"`):
+Named template (`style: "template"` requires exactly one of `template` or `customTemplate`):
 
 ```json
 {
@@ -109,37 +116,102 @@ Curated template (`template` is required with `style: "template"`):
 }
 ```
 
+Custom template (an inline definition in the same format as the template files; `id` and `name`
+are required but only used for messages):
+
+```json
+{
+  "images": ["<key 1>", "<key 2>", "<key 3>"],
+  "mode": "grid",
+  "style": "template",
+  "customTemplate": {
+    "version": 1,
+    "id": "my-layout",
+    "name": "My layout",
+    "cols": [2, 1],
+    "rows": [1, 1],
+    "cells": [
+      { "col": 0, "row": 0, "rowSpan": 2, "hero": true },
+      { "col": 1, "row": 0 },
+      { "col": 1, "row": 1 }
+    ]
+  },
+  "canvas": { "w": 1080, "h": 1080 }
+}
+```
+
 Defaults: `canvas.gap` is `12` px, `canvas.bg` is `#ffffff` (`#RRGGBB`), `format` is `png`, and
 `webhookUrl` is optional (http/https). `format` is the output encoding: `png` or `jpeg` (JPEG is
-flattened onto the background color). Only `mode: "grid"` is supported; `style` is `justified` or
-`template`. A `template` is rejected with `style: "justified"`.
+flattened onto the background color). `mode` is `grid` or `polaroid`; `style` (`justified` or `template`), `template`,
+`customTemplate` and `canvas` apply only to `mode: "grid"`. `template` and `customTemplate` are rejected with `style: "justified"`, and sending
+both returns `400`.
 
 Canvas: `w` and `h` are positive integer pixels, `gap` is a non-negative integer. The browser
 offers 1080×1080, 1080×1350, and 1920×1080 presets plus custom sizes; the API accepts any size
 within the caps below (default 8192 px per side and 40 megapixels in total). A gap too wide for
 the canvas and image count fails the job with `VALIDATION_FAILED`.
 
-Template image counts:
+Template image counts: `template` is the `id` of a template listed by
+`GET /api/collages/templates` and needs exactly as many images as it has cells, or `rectangular`,
+which accepts any count from 1 to the maximum. A custom template also needs exactly one image per
+cell. The shipped templates are:
 
-| `template`    | Images                           |
-| ------------- | -------------------------------- |
-| `grid-2x2`    | exactly 4                        |
-| `grid-3x3`    | exactly 9                        |
-| `hero-4`      | exactly 5 (one hero, four small) |
-| `rectangular` | any count from 1 to the maximum  |
+| `template`        | Images                             |
+| ----------------- | ---------------------------------- |
+| `hero-2-stacked`  | exactly 3 (hero + 2 stacked)       |
+| `grid-2x2`        | exactly 4                          |
+| `strip-1-3`       | exactly 4 (wide hero + 3 below)    |
+| `hero-4`          | exactly 5 (left hero + four small) |
+| `grid-2x3`        | exactly 6                          |
+| `magazine-hero-5` | exactly 6 (2×2 hero + five small)  |
+| `grid-3x3`        | exactly 9                          |
+| `rectangular`     | any count from 1 to the maximum    |
 
-A mismatched count returns `400`. Justified rows accept 1 to the maximum number of images.
+An unknown template id or a mismatched count returns `400`. Justified rows accept 1 to the maximum
+number of images.
 Images are placed automatically to minimize crop and aspect mismatch; upload order breaks ties.
+
+### Polaroid carousel (`mode: "polaroid"`)
+
+Builds one seamless spread (a torn sheet of paper glued onto a diary page) with the images as
+polaroid-style prints, then slices it into carousel slides. Polaroids can cross slide edges, so the
+slides are meant to be swiped through in order. `canvas`, `style`, and `template` are not accepted
+for this mode.
+
+```json
+{
+  "images": ["<key 1>", "<key 2>", "<key 3>", "<key 4>"],
+  "mode": "polaroid",
+  "polaroid": {
+    "slides": 2,
+    "slideAspect": "4:5",
+    "captions": ["Summer 2025", "", "Road trip", "Home"]
+  },
+  "format": "png",
+  "webhookUrl": "https://example.com/hooks/collage"
+}
+```
+
+- `slideAspect` (required): `4:5` (1080×1350 px slides) or `1:1` (1080×1080 px slides).
+- `slides` (optional): 2 to 10. Defaults to about three images per slide (`ceil(images / 3)`, kept
+  between 2 and 10). There must be at least one image per slide and at most six per slide.
+- `captions` (optional): exactly one entry per image, up to 60 characters each, plain text. An empty
+  string leaves that polaroid's caption strip blank. Captions are written in a handwriting font.
+- `format` (`png` or `jpeg`, default `png`) applies to the slides. Placement is automatic and
+  deterministic for the same ordered images.
+
+The response is the same `202` with a `jobId` (the job `type` is `collage.polaroid`).
 
 Limits (server configuration, defaults shown):
 
-| Limit                          | Default        | Environment variable        | Enforced                   |
-| ------------------------------ | -------------- | --------------------------- | -------------------------- |
-| Images per collage             | 20             | `COLLAGE_MAX_IMAGES`        | On create (`400`)          |
-| Bytes per image                | 200 MB         | `MAX_IMAGE_UPLOAD_MB`       | Presign and create (`413`) |
-| Canvas side                    | 8192 px        | `COLLAGE_MAX_DIMENSION`     | On create (`400`)          |
-| Canvas area                    | 40 megapixels  | `COLLAGE_MAX_CANVAS_PIXELS` | On create (`400`)          |
-| Decoded pixels per input image | 200 megapixels | `COLLAGE_MAX_INPUT_PIXELS`  | In the worker              |
+| Limit                          | Default        | Environment variable                 | Enforced                   |
+| ------------------------------ | -------------- | ------------------------------------ | -------------------------- |
+| Images per collage             | 20             | `COLLAGE_MAX_IMAGES`                 | On create (`400`)          |
+| Bytes per image                | 200 MB         | `MAX_IMAGE_UPLOAD_MB`                | Presign and create (`413`) |
+| Canvas side                    | 8192 px        | `COLLAGE_MAX_DIMENSION`              | On create (`400`)          |
+| Canvas area                    | 40 megapixels  | `COLLAGE_MAX_CANVAS_PIXELS`          | On create (`400`)          |
+| Decoded pixels per input image | 200 megapixels | `COLLAGE_MAX_INPUT_PIXELS`           | In the worker              |
+| Polaroid spread area           | 20 megapixels  | `COLLAGE_POLAROID_MAX_SPREAD_PIXELS` | On create (`400`)          |
 
 Supported image types are `image/jpeg`, `image/png`, and `image/webp` with a `.jpg`, `.jpeg`,
 `.png`, or `.webp` extension. HEIC/HEIF is not supported in this build: the packaged sharp/libvips
@@ -147,7 +219,8 @@ lacks HEVC decoding, so `.heic`/`.heif` keys and `image/heic`/`image/heif` are r
 object's actual content type and size are checked on create (and uploaded metadata is not proof of
 the contents); the worker's decoder is authoritative, so a corrupt image or one over the pixel
 limit fails the job with `VALIDATION_FAILED`. Collage worker concurrency is
-`WORKER_CONCURRENCY_COLLAGE` (default 1).
+`WORKER_CONCURRENCY_COLLAGE` (default 1). Polaroid captions use the font at `POLAROID_FONT_PATH`
+(default `assets/fonts/Caveat-Regular.ttf`, SIL OFL); the worker image must contain it.
 
 The response is `202` and contains only the job ID (there is no separate collage resource):
 
@@ -161,6 +234,45 @@ duplicate keys, limit or template violations, or an unsupported type, extension,
 object does not exist (the two cases are indistinguishable); `409` when the key is already
 registered with different metadata; `413` when an object exceeds the image size limit; `503`
 `QUEUE_UNAVAILABLE` when the job cannot be enqueued. No job is processed for a rejected request.
+
+## GET /api/collages/templates
+
+Lists the collage templates the server read from `COLLAGE_TEMPLATES_DIR` (default
+`assets/collage-templates`; one `<id>.json` file per template, where the id must match the
+filename). Templates are sorted by cell count, then id. Requires authentication. The response is
+`200`:
+
+```json
+{
+  "templates": [
+    {
+      "version": 1,
+      "id": "grid-2x2",
+      "name": "2×2 grid",
+      "description": "Four equal tiles.",
+      "cols": [1, 1],
+      "rows": [1, 1],
+      "cells": [
+        { "col": 0, "row": 0, "colSpan": 1, "rowSpan": 1, "hero": false },
+        { "col": 1, "row": 0, "colSpan": 1, "rowSpan": 1, "hero": false },
+        { "col": 0, "row": 1, "colSpan": 1, "rowSpan": 1, "hero": false },
+        { "col": 1, "row": 1, "colSpan": 1, "rowSpan": 1, "hero": false }
+      ]
+    }
+  ]
+}
+```
+
+Template format:
+
+- `cols` / `rows`: relative track weights (1 to 12 tracks, integers 1 to 100). Tracks share
+  the canvas minus gaps in proportion to their weights.
+- `cells`: `col`/`row` are 0-based track indices, `colSpan`/`rowSpan` default to 1, and `hero`
+  (default `false`) marks at most one cell for the most important image. Cells must stay inside
+  the grid and must not overlap; grid areas not covered by a cell are left as background.
+- The id `rectangular` is reserved. Files are read once and cached; restart the server after
+  editing them. An invalid file makes this endpoint and collage creation fail with an error
+  naming the file.
 
 ## GET /api/jobs/:id
 
@@ -194,6 +306,35 @@ Expiry: a fresh signed URL is generated on every poll and is not stored. It is v
 `expiresInSec` seconds (the presign TTL, `PRESIGN_TTL_SEC`, default 900); poll again for a new URL
 after it expires. The output object and asset ID are not otherwise exposed.
 
+A succeeded polaroid job (`type` is `collage.polaroid`) returns one ZIP of all slides plus a URL per
+slide for previewing:
+
+```json
+{
+  "id": "00000000-0000-0000-0000-000000000001",
+  "type": "collage.polaroid",
+  "status": "succeeded",
+  "progress": 100,
+  "result": {
+    "output": {
+      "slideCount": 2,
+      "slideWidth": 1080,
+      "slideHeight": 1350,
+      "slideFormat": "png",
+      "zipUrl": "<short-lived signed GET URL>",
+      "slides": [
+        { "index": 0, "url": "<short-lived signed GET URL>" },
+        { "index": 1, "url": "<short-lived signed GET URL>" }
+      ],
+      "expiresInSec": 900
+    }
+  },
+  "error": null
+}
+```
+
+All URLs are signed fresh on every poll and expire after `expiresInSec`; the result is `null` until the job succeeds.
+
 Statuses are `queued`, `running`, `succeeded`, `failed`, and `cancelled`. Worker failures caused by
 bad input (a 4xx error such as `VALIDATION_FAILED` or `NOT_FOUND`, except `408` and `429`) are not
 retried: the job fails immediately with that code and message. Other failures are retried (up to 3
@@ -217,7 +358,8 @@ Jobs created with a `webhookUrl` send a JSON `POST` when they reach `succeeded` 
 }
 ```
 
-`resultUrls` contains the output download URL only for a succeeded collage job; it is signed at
+`resultUrls` contains the output download URL only for a succeeded collage job; for a polaroid job
+it lists the ZIP URL first, then one URL per slide in order; it is signed at
 delivery time with the same TTL as polling (`PRESIGN_TTL_SEC`) and is an empty array for failed jobs
 (or if the result cannot be resolved). Receivers should deduplicate using `eventId`. Requests
 include `X-Timestamp` (Unix seconds) and `X-Signature: sha256=<hex>`. The signature is HMAC-SHA256

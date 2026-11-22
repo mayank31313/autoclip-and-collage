@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "id": "grid-2x2",
+  "name": "2×2 grid",
+  "description": "Four equal tiles.",
+  "cols": [1, 1],
+  "rows": [1, 1],
+  "cells": [
+    {
+      "col": 0,
+      "row": 0
+    },
+    {
+      "col": 1,
+      "row": 0
+    },
+    {
+      "col": 0,
+      "row": 1
+    },
+    {
+      "col": 1,
+      "row": 1
+    }
+  ]
+}

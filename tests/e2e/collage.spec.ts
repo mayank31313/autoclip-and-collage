@@ -36,14 +36,69 @@ async function mockStorage(page: Page, png: Buffer): Promise<void> {
   );
 }
 
-async function fillForm(page: Page, png: Buffer): Promise<void> {
+async function attach(page: Page, png: Buffer, count: number): Promise<void> {
+  const files = Array.from({ length: count }, (_, i) => ({
+    name: `img-${i}.png`,
+    mimeType: "image/png",
+    buffer: png,
+  }));
+  await page.getByLabel("Images").setInputFiles(files);
+}
+
+async function fillForm(page: Page, png: Buffer, count = 1): Promise<void> {
   await page.goto("/collages");
+  // A dev server with STUDIO_API_KEY pre-fills the key; these tests use their own key.
+  const useOwnKey = page.getByRole("button", { name: "Use a different key" });
+  if (await useOwnKey.isVisible()) await useOwnKey.click();
   await page.getByLabel("API key").fill("ak_test");
-  await page
-    .getByLabel("Images")
-    .setInputFiles({ name: "a.png", mimeType: "image/png", buffer: png });
+  await attach(page, png, count);
   await expect(page.getByLabel("Justified rows")).toBeChecked();
 }
+
+/** Mocks every API call for a successful run and returns the captured create-collage bodies. */
+async function mockSuccessfulRun(page: Page, png: Buffer): Promise<unknown[]> {
+  await mockStorage(page, png);
+  const bodies: unknown[] = [];
+  let uploads = 0;
+  await page.route("**/api/uploads/presign", (route) => {
+    uploads += 1;
+    return route.fulfill({
+      json: { url: PUT_URL, key: `uploads/owner/u${uploads}/a.png`, expiresInSec: 900 },
+    });
+  });
+  await page.route("**/api/collages", (route) => {
+    bodies.push(route.request().postDataJSON());
+    return route.fulfill({ status: 202, json: { jobId: "j1" } });
+  });
+  await page.route("**/api/jobs/j1", (route) =>
+    route.fulfill({
+      json: {
+        id: "j1",
+        type: "collage.build",
+        status: "succeeded",
+        progress: 100,
+        result: { output: OUTPUT },
+        error: null,
+      },
+    }),
+  );
+  return bodies;
+}
+
+test("guides visitors from the studio home into the collage workflow", async ({ page }) => {
+  await page.goto("/");
+
+  await expect(page.getByRole("heading", { name: "Make something worth sharing." })).toBeVisible();
+  await expect
+    .poll(() => page.locator("body").evaluate((body) => getComputedStyle(body).fontFamily))
+    .toContain("Geist");
+  await page.getByRole("link", { name: "Create a collage", exact: true }).click();
+  await expect(page).toHaveURL(/\/collages$/);
+  await expect(page.getByRole("heading", { name: "Create a collage" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Add your images" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Choose your layout" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Set your output" })).toBeVisible();
+});
 
 test("uploads, creates, and downloads a collage", async ({ page }) => {
   const png = await makePng();
@@ -206,4 +261,51 @@ test("keeps the API key out of storage and URLs", async ({ page }) => {
     JSON.stringify([{ ...localStorage }, { ...sessionStorage }, document.cookie]),
   );
   expect(stored).not.toContain("ak_test");
+});
+
+test("creates a collage from a ready-made template", async ({ page }) => {
+  const png = await makePng();
+  const bodies = await mockSuccessfulRun(page, png);
+
+  await fillForm(page, png, 4);
+  await page.getByRole("radio", { name: /^Template/ }).check();
+  await expect(page.getByRole("radio", { name: /3×3 grid/ })).toBeDisabled();
+  await expect(page.getByRole("img", { name: "2×2 grid layout preview" })).toBeVisible();
+  await page.getByRole("radio", { name: /2×2 grid/ }).check();
+  await page.getByRole("button", { name: "Create collage" }).click();
+  await expect(page.getByRole("img", { name: "Generated collage" })).toBeVisible();
+
+  expect(bodies).toHaveLength(1);
+  expect(bodies[0]).toMatchObject({ style: "template", template: "grid-2x2" });
+});
+
+test("builds a custom layout with the grid builder and JSON editor", async ({ page }) => {
+  const png = await makePng();
+  const bodies = await mockSuccessfulRun(page, png);
+
+  await fillForm(page, png, 3);
+  await page.getByRole("radio", { name: /^Create your own/ }).check();
+  await expect(page.getByText("Needs 4 images")).toBeVisible();
+  await page.getByLabel("Columns", { exact: true }).fill("3");
+  await page.getByLabel("Rows", { exact: true }).fill("1");
+  await expect(page.getByText("Needs 3 images")).toBeVisible();
+
+  await page.getByText("Advanced: edit JSON").click();
+  const json = page.getByLabel("Custom template JSON");
+  await json.fill("{ not json");
+  await expect(page.getByText("Invalid layout")).toBeVisible();
+  await page.getByRole("button", { name: "Reset from grid" }).click();
+  await expect(page.getByText("Needs 3 images")).toBeVisible();
+
+  await page.getByRole("button", { name: "Create collage" }).click();
+  await expect(page.getByRole("img", { name: "Generated collage" })).toBeVisible();
+  expect(bodies).toHaveLength(1);
+  const body = bodies[0] as {
+    style: string;
+    template?: string;
+    customTemplate: { cells: unknown[] };
+  };
+  expect(body.style).toBe("template");
+  expect(body.template).toBeUndefined();
+  expect(body.customTemplate.cells).toHaveLength(3);
 });

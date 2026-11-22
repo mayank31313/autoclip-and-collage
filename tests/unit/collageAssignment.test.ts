@@ -3,6 +3,7 @@ import { assignImagesToSlots, coverCropFraction } from "@/lib/planner/collage/as
 import type { ImageStats, Slot } from "@/lib/planner/collage/grid/types";
 import { solveAssignment } from "@/lib/planner/collage/hungarian";
 import { planGridCollage } from "@/lib/planner/collage/plan";
+import { heroFourTemplate } from "../fixtures/collageTemplates";
 
 function pairs(costs: number[][]) {
   return solveAssignment(costs).map(({ row, column }) => [row, column]);
@@ -163,7 +164,7 @@ describe("planGridCollage assignment", () => {
       canvas: { w: 1080, h: 1080, gap: 12, bg: "#ffffff" },
       images,
       style: "template",
-      template: "hero-4",
+      template: heroFourTemplate,
     });
     expect(layout.cells[0].image).toBe("a4");
     expect(layout.cells.slice(1).map((c) => c.image)).toEqual(["a0", "a1", "a2", "a3"]);
