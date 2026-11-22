@@ -150,6 +150,8 @@ npm run build
 ```
 
 Layout planners should include focused unit and property tests. The test suite uses Vitest and fast-check for pure logic, plus Playwright for browser workflows.
+The typecheck command generates Next.js route types before running TypeScript, so it
+also works on a fresh checkout.
 
 ### GitHub Actions image publishing
 
