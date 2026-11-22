@@ -2,6 +2,7 @@
   "name": "autoclip-and-collage",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -12,7 +13,7 @@
     "format:check": "prettier --check .",
     "test": "vitest run",
     "e2e": "playwright test",
-    "worker": "tsx --env-file=.env worker/index.ts",
+    "worker": "tsx worker/index.ts",
     "db:generate": "node --env-file=.env node_modules/drizzle-kit/bin.cjs generate",
     "db:migrate": "node --env-file=.env node_modules/drizzle-kit/bin.cjs migrate",
     "create-key": "tsx --env-file=.env scripts/create-api-key.ts",

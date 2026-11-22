@@ -1,0 +1,6 @@
+.github
+.next
+.superpowers
+node_modules
+tests
+.env*
