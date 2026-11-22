@@ -1,7 +1,7 @@
 # API
 
-The service exposes health, presigned uploads, static grid collage jobs, and job polling. Clip
-creation is not yet implemented.
+The service exposes health, presigned uploads, static grid/polaroid/slideshow collage jobs, and job
+polling. Clip creation is not yet implemented.
 
 ## Authentication and errors
 
@@ -238,6 +238,72 @@ for this mode.
 
 The response is the same `202` with a `jobId` (the job `type` is `collage.polaroid`).
 
+### Video slideshow (`mode: "slideshow"`)
+
+Builds an MP4 slideshow from images and/or video clips, in request order, with optional
+crossfade/wipe transitions between slides. `images`, `canvas`, `style`, and `template` are not
+accepted for this mode; `format` must be `"mp4"`.
+
+```json
+{
+  "sources": [
+    { "key": "<image key>", "kind": "image", "durationSec": 4, "fit": "cover" },
+    { "key": "<video key>", "kind": "video", "startSec": 2, "endSec": 7, "fit": "contain" }
+  ],
+  "mode": "slideshow",
+  "slideshow": {
+    "canvas": "16:9",
+    "fps": 30,
+    "transition": "fade",
+    "transitionSec": 0.5
+  },
+  "format": "mp4",
+  "webhookUrl": "https://example.com/hooks/collage"
+}
+```
+
+Each entry in `sources` is a previously presigned upload `key` plus:
+
+- `kind` (required): `image` or `video`.
+- `durationSec` (required for `image`; optional for `video`): how long the slide plays. For
+  `video`, it must equal `endSec - startSec` when both are given.
+- `startSec` / `endSec` (`video` only): the trim window within the source clip, in source
+  seconds. `endSec` is required whenever `startSec` is given, must be after `startSec`, and both
+  must fall within the clip's probed duration. When omitted, the clip starts at `0` and ends at
+  `min(probed duration, SLIDESHOW_MAX_SLIDE_SEC)`.
+- `fit` (optional, default `cover`): `cover` (fills the canvas, cropping as needed) or `contain`
+  (fits the whole frame, with letterboxing in the canvas background).
+
+`slideshow` options:
+
+- `canvas` (optional, default `16:9`): `16:9`, `9:16`, or `1:1`. Fixed pixel dimensions per
+  aspect are chosen by the server (no `canvas.w`/`canvas.h` here, unlike grid collages).
+- `fps` (optional, default `30`): `24` or `30`.
+- `transition` (optional, default `cut`): `cut`, `fade`, or `wipe`. `cut` requires
+  `transitionSec` to be `0`.
+- `transitionSec` (optional, default `0`): crossfade/wipe length in seconds; ignored (and must be
+  `0`) for `cut`.
+
+The response is the same `202` with a `jobId` (the job `type` is `collage.slideshow`). A succeeded
+job's result (see [GET /api/jobs/:id](#get-apijobsid)) contains a short-lived MP4 master download
+URL, a short-lived ZIP download URL, and one short-lived URL per rendered slide. The ZIP contains
+the master as `master.mp4` plus one normalized per-slide clip named `slide-00.mp4`, `slide-01.mp4`,
+and so on (zero-padded, one entry per source in request order).
+
+Limits (server configuration, defaults shown):
+
+| Limit                    | Default | Environment variable           | Enforced          |
+| ------------------------ | ------- | ------------------------------ | ----------------- |
+| Sources per slideshow    | 20      | `SLIDESHOW_MAX_SLIDES`         | On create (`400`) |
+| Seconds per slide        | 30      | `SLIDESHOW_MAX_SLIDE_SEC`      | On create (`400`) |
+| Total slideshow duration | 300     | `SLIDESHOW_MAX_DURATION_SEC`   | On create (`400`) |
+| Transition seconds       | 2       | `SLIDESHOW_MAX_TRANSITION_SEC` | On create (`400`) |
+
+Image sources reuse the grid/polaroid image rules (type, size, `MAX_IMAGE_UPLOAD_MB`); video
+sources reuse the upload rules in [POST /api/uploads/presign](#post-apiuploadspresign)
+(`MAX_UPLOAD_MB`). A video source is probed with `ffprobe` on create to validate `startSec`/
+`endSec` against its real duration; a corrupt or unreadable video fails with `VALIDATION_FAILED`.
+
 Limits (server configuration, defaults shown):
 
 | Limit                          | Default        | Environment variable                 | Enforced                   |
@@ -371,6 +437,40 @@ slide for previewing:
 
 All URLs are signed fresh on every poll and expire after `expiresInSec`; the result is `null` until the job succeeds.
 
+A succeeded slideshow job (`type` is `collage.slideshow`) returns the MP4 master, a ZIP of the
+master plus every normalized per-slide clip, and a URL per slide for previewing:
+
+```json
+{
+  "id": "00000000-0000-0000-0000-000000000001",
+  "type": "collage.slideshow",
+  "status": "succeeded",
+  "progress": 100,
+  "result": {
+    "output": {
+      "width": 1920,
+      "height": 1080,
+      "fps": 30,
+      "durationSec": 9.5,
+      "format": "mp4",
+      "masterUrl": "<short-lived signed GET URL>",
+      "zipUrl": "<short-lived signed GET URL>",
+      "slides": [
+        { "index": 0, "durationSec": 4, "url": "<short-lived signed GET URL>" },
+        { "index": 1, "durationSec": 5, "url": "<short-lived signed GET URL>" }
+      ],
+      "expiresInSec": 900
+    }
+  },
+  "error": null
+}
+```
+
+`result.output` has `width`/`height` (px), `fps` (`24` or `30`), `durationSec` (the full master
+length), `format` (always `mp4`), `masterUrl`, `zipUrl`, one `slides` entry per source (`index`,
+its own `durationSec`, and a preview `url`), and `expiresInSec`. All URLs are signed fresh on every
+poll, same as grid and polaroid results.
+
 Statuses are `queued`, `running`, `succeeded`, `failed`, and `cancelled`. Worker failures caused by
 bad input (a 4xx error such as `VALIDATION_FAILED` or `NOT_FOUND`, except `408` and `429`) are not
 retried: the job fails immediately with that code and message. Other failures are retried (up to 3
@@ -395,7 +495,8 @@ Jobs created with a `webhookUrl` send a JSON `POST` when they reach `succeeded` 
 ```
 
 `resultUrls` contains the output download URL only for a succeeded collage job; for a polaroid job
-it lists the ZIP URL first, then one URL per slide in order; it is signed at
+it lists the ZIP URL first, then one URL per slide in order; for a slideshow job it lists the MP4
+master URL first, then one URL per slide in order (the ZIP URL is not included); it is signed at
 delivery time with the same TTL as polling (`PRESIGN_TTL_SEC`) and is an empty array for failed jobs
 (or if the result cannot be resolved). Receivers should deduplicate using `eventId`. Requests
 include `X-Timestamp` (Unix seconds) and `X-Signature: sha256=<hex>`. The signature is HMAC-SHA256
