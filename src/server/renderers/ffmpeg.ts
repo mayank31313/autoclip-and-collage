@@ -67,3 +67,12 @@ export function escapeFilterText(text: string): string {
 export function escapeFilterGraphValue(text: string): string {
   return escapeFilterText(escapeFilterText(text));
 }
+
+/**
+ * Escapes a path for one line of an ffmpeg `-f concat` demuxer list file (`file '<path>'`).
+ * Per ffmpeg's own concat syntax, a backslash or single quote in the path must be escaped with
+ * a backslash before the whole value is wrapped in single quotes.
+ */
+export function escapeConcatListPath(filePath: string): string {
+  return filePath.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+}

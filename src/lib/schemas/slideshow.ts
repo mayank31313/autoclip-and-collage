@@ -63,7 +63,7 @@ export const SlideshowWorkerSource = z.object({
 
 export const SlideshowWorkerInput = z
   .object({
-    sources: z.array(SlideshowWorkerSource).min(1).max(20),
+    sources: z.array(SlideshowWorkerSource).min(1),
     slideshow: SlideshowOptions,
   })
   .superRefine((input, ctx) => {

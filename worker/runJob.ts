@@ -6,6 +6,7 @@ import { jobsRepo, type JobRow, type TransitionPatch } from "@/server/db/reposit
 import { AppError } from "@/server/http/errors";
 import { COLLAGE_JOB_TYPE, resolveCollageResult } from "@/server/jobs/collageResult";
 import { resolvePolaroidResult } from "@/server/jobs/polaroidResult";
+import { resolveSlideshowResult, SLIDESHOW_JOB_TYPE } from "@/server/jobs/slideshowResult";
 import { logger } from "@/server/logger";
 import { deliverWebhook } from "@/server/webhooks/deliver";
 
@@ -48,6 +49,10 @@ async function resultUrlsFor(job: JobRow, status: JobStatus): Promise<string[]> 
     if (job.type === POLAROID_JOB_TYPE) {
       const { output } = await resolvePolaroidResult(job);
       return [output.zipUrl, ...output.slides.map((slide) => slide.url)];
+    }
+    if (job.type === SLIDESHOW_JOB_TYPE) {
+      const { output } = await resolveSlideshowResult(job);
+      return [output.masterUrl, ...output.slides.map((slide) => slide.url)];
     }
     return [];
   } catch (err) {
