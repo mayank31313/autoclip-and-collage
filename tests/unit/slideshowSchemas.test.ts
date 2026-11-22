@@ -45,6 +45,42 @@ describe("slideshow schemas", () => {
     ).toBe(false);
   });
 
+  it("rejects fade/wipe with a zero transition", () => {
+    expect(
+      SlideshowOptions.safeParse({
+        canvas: "16:9",
+        fps: 30,
+        transition: "fade",
+        transitionSec: 0,
+      }).success,
+    ).toBe(false);
+    expect(
+      SlideshowOptions.safeParse({
+        canvas: "16:9",
+        fps: 30,
+        transition: "wipe",
+        transitionSec: 0,
+      }).success,
+    ).toBe(false);
+  });
+
+  it("requires an image durationSec of at least 1 second", () => {
+    expect(
+      SlideshowSourceSchema.safeParse({
+        key: "uploads/owner/a.jpg",
+        kind: "image",
+        durationSec: 0.5,
+      }).success,
+    ).toBe(false);
+    expect(
+      SlideshowSourceSchema.safeParse({
+        key: "uploads/owner/a.jpg",
+        kind: "image",
+        durationSec: 1,
+      }).success,
+    ).toBe(true);
+  });
+
   it("uses the slideshow job type", () => {
     expect(SLIDESHOW_JOB_TYPE).toBe("collage.slideshow");
   });
@@ -86,6 +122,59 @@ describe("slideshow schemas", () => {
       masterDurationSec: 3,
     });
     expect(spec.slides).toHaveLength(1);
+  });
+
+  it("rejects a fade/wipe transition not shorter than every slide's duration", () => {
+    const spec: SlideshowSpec = {
+      version: 1,
+      canvas: { w: 1920, h: 1080 },
+      fps: 30,
+      transition: { type: "fade", durationSec: 2 },
+      slides: [
+        { id: 0, assetId: "a", kind: "image", startSec: 0, endSec: 2, durationSec: 2, fit: "cover" },
+        { id: 1, assetId: "b", kind: "image", startSec: 0, endSec: 5, durationSec: 5, fit: "cover" },
+      ],
+      masterDurationSec: 5,
+    };
+    const issues = validateSlideshowSpec(spec);
+    expect(issues.map((i) => i.message)).toContain(
+      "transition duration must be less than slide 0's duration",
+    );
+  });
+
+  it("rejects a middle slide whose duration is less than twice the transition", () => {
+    const spec: SlideshowSpec = {
+      version: 1,
+      canvas: { w: 1920, h: 1080 },
+      fps: 30,
+      transition: { type: "wipe", durationSec: 2 },
+      slides: [
+        { id: 0, assetId: "a", kind: "image", startSec: 0, endSec: 10, durationSec: 10, fit: "cover" },
+        { id: 1, assetId: "b", kind: "image", startSec: 0, endSec: 3, durationSec: 3, fit: "cover" },
+        { id: 2, assetId: "c", kind: "image", startSec: 0, endSec: 10, durationSec: 10, fit: "cover" },
+      ],
+      masterDurationSec: 19,
+    };
+    const issues = validateSlideshowSpec(spec);
+    expect(issues.map((i) => i.message)).toContain(
+      "transition duration must not exceed half of slide 1's duration",
+    );
+  });
+
+  it("accepts a fade transition within half of every middle slide's duration", () => {
+    const spec: SlideshowSpec = {
+      version: 1,
+      canvas: { w: 1920, h: 1080 },
+      fps: 30,
+      transition: { type: "fade", durationSec: 1 },
+      slides: [
+        { id: 0, assetId: "a", kind: "image", startSec: 0, endSec: 3, durationSec: 3, fit: "cover" },
+        { id: 1, assetId: "b", kind: "image", startSec: 0, endSec: 3, durationSec: 3, fit: "cover" },
+        { id: 2, assetId: "c", kind: "image", startSec: 0, endSec: 3, durationSec: 3, fit: "cover" },
+      ],
+      masterDurationSec: 7,
+    };
+    expect(validateSlideshowSpec(spec)).toHaveLength(0);
   });
 
   it("validates spec with validateSlideshowSpec and detects errors", () => {

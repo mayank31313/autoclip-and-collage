@@ -8,7 +8,6 @@ import {
   type PolaroidFormValues,
 } from "@/features/collage/polaroidForm";
 import {
-  SLIDESHOW_MAX_SOURCES,
   buildSlideshowBody,
   defaultSourceDraft,
   slideshowKindOf,
@@ -102,8 +101,6 @@ export function parseTemplateJson(text: string): ParsedTemplate {
 
 export interface CollageFormValues extends PolaroidFormValues {
   files: File[];
-  /** True when the user picked the Slideshow option; `mode` stays grid/polaroid underneath. */
-  slideshowSelected: boolean;
   style: LayoutChoice;
   /** A file template id or `rectangular`. */
   template: string;
@@ -118,7 +115,7 @@ export interface CollageFormValues extends PolaroidFormValues {
   slideshowFps: SlideshowFpsValue;
   slideshowTransition: SlideshowTransitionValue;
   slideshowTransitionSec: number;
-  /** One draft per selected file, by index; only meaningful when `slideshowSelected` is true. */
+  /** One draft per selected file, by index; only meaningful when `mode` is "slideshow". */
   slideshowSources: SlideshowSourceDraft[];
 }
 
@@ -133,7 +130,6 @@ export const COLLAGE_FORM_DEFAULTS: CollageFormValues = {
   width: 1080,
   height: 1080,
   format: "png",
-  slideshowSelected: false,
   slideshowCanvas: "16:9",
   slideshowFps: 30,
   slideshowTransition: "cut",
@@ -235,8 +231,7 @@ export function createCollageFormSchema(
       width: size,
       height: size,
       format: CollageFormat,
-      mode: z.enum(["grid", "polaroid"]),
-      slideshowSelected: z.boolean(),
+      mode: z.enum(["grid", "polaroid", "slideshow"]),
       slides: size,
       slideAspect: PolaroidAspect,
       polaroidTemplate: PolaroidTemplate,
@@ -259,15 +254,19 @@ export function createCollageFormSchema(
       ),
     })
     .superRefine((v, ctx) => {
-      if (v.slideshowSelected) {
-        if (v.files.length > SLIDESHOW_MAX_SOURCES) {
+      if (v.mode === "slideshow") {
+        if (v.files.length > limits.maxSlideshowSources) {
           ctx.addIssue({
             code: "custom",
             path: ["files"],
-            message: `Select at most ${SLIDESHOW_MAX_SOURCES} files`,
+            message: `Select at most ${limits.maxSlideshowSources} files`,
           });
         }
-        for (const problem of slideshowProblems(v.files, v.slideshowSources)) {
+        for (const problem of slideshowProblems(
+          v.files,
+          v.slideshowSources,
+          limits.maxSlideshowSources,
+        )) {
           ctx.addIssue({ code: "custom", path: problem.path, message: problem.message });
         }
         return;
@@ -313,7 +312,7 @@ function templateFields(values: CollageFormValues) {
 
 /** Builds the API request from form values and the object keys of the uploaded images. */
 export function buildCreateBody(values: CollageFormValues, keys: string[]): CreateCollageBody {
-  if (values.slideshowSelected) {
+  if (values.mode === "slideshow") {
     return buildSlideshowBody(
       {
         canvas: values.slideshowCanvas,

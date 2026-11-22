@@ -43,8 +43,49 @@ test("shows mixed-media slideshow controls", async ({ page }) => {
     buffer: png,
   });
 
-  await page.getByRole("button", { name: "Slideshow" }).click();
+  await page.getByRole("radio", { name: "Slideshow" }).click();
 
   await expect(page.getByLabel("Canvas")).toBeVisible();
-  await expect(page.getByLabel("Transition")).toBeVisible();
+  await expect(page.getByLabel("Transition", { exact: true })).toBeVisible();
+});
+
+test("keeps Grid, Polaroid and Slideshow mutually exclusive and returns to Grid", async ({
+  page,
+}) => {
+  const png = await makePng();
+  await mockUploads(page);
+
+  await page.goto("/collages");
+  const useOwnKey = page.getByRole("button", { name: "Use a different key" });
+  if (await useOwnKey.isVisible()) await useOwnKey.click();
+  await page.getByLabel("API key").fill("ak_test");
+  await page.getByLabel("Images").setInputFiles([
+    { name: "img-0.png", mimeType: "image/png", buffer: png },
+    { name: "img-1.png", mimeType: "image/png", buffer: png },
+  ]);
+
+  // Grid is the default: collage-specific controls are visible, the others are not.
+  const gridRadio = page.getByRole("radio", { name: /^Collage /, exact: false });
+  const polaroidRadio = page.getByRole("radio", { name: /^Polaroid carousel/, exact: false });
+  const slideshowRadio = page.getByRole("radio", { name: /^Slideshow /, exact: false });
+
+  // Grid (Collage) is the default: collage-specific controls are visible, the others are not.
+  await expect(gridRadio).toBeChecked();
+  await expect(page.getByLabel("Canvas")).not.toBeVisible();
+
+  await polaroidRadio.click();
+  await expect(polaroidRadio).toBeChecked();
+  await expect(gridRadio).not.toBeChecked();
+  await expect(page.getByLabel("Canvas")).not.toBeVisible();
+
+  await slideshowRadio.click();
+  await expect(slideshowRadio).toBeChecked();
+  await expect(polaroidRadio).not.toBeChecked();
+  await expect(page.getByLabel("Canvas")).toBeVisible();
+
+  // Returning to Grid must work even though Grid was already selected before Slideshow.
+  await gridRadio.click();
+  await expect(gridRadio).toBeChecked();
+  await expect(slideshowRadio).not.toBeChecked();
+  await expect(page.getByLabel("Canvas")).not.toBeVisible();
 });

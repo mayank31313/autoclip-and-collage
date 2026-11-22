@@ -196,9 +196,8 @@ describe("buildSlideshow processor (real ffmpeg/ffprobe)", () => {
       const zipUpload = h.uploads.find((u) => u.key.endsWith("slideshow.zip"));
       expect(zipUpload).toBeDefined();
       const entries = unzipSync(await readFile(zipUpload?.path ?? ""));
-      expect(Object.keys(entries).sort()).toEqual(
-        ["master.mp4", "slide-00.mp4", "slide-01.mp4"].sort(),
-      );
+      // Only per-slide MP4s are packaged; the master is downloaded separately.
+      expect(Object.keys(entries).sort()).toEqual(["slide-0.mp4", "slide-1.mp4"].sort());
     },
     RENDER_TIMEOUT_MS,
   );

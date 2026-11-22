@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import { useWatch, type UseFormReturn } from "react-hook-form";
 import { SectionHeading } from "@/components/collage/CollageOptionsFields";
 import { fieldErrorClass, inputClass, legendClass } from "@/components/collage/fieldStyles";
@@ -19,6 +20,12 @@ export function SlideshowOptionsFields({ form, files }: { form: Form; files: Fil
   const errors = formState.errors;
   const transition = useWatch({ control, name: "slideshowTransition" });
   const sources = useWatch({ control, name: "slideshowSources" }) ?? [];
+  // "cut" has no transitionSec field in this form, so keep the stored value at zero: it is
+  // sent to the server as-is, and a stale non-zero value would otherwise fail validation.
+  useEffect(() => {
+    if (transition === "cut") form.setValue("slideshowTransitionSec", 0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [transition]);
 
   return (
     <>

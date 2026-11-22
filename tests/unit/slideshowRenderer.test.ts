@@ -3,7 +3,9 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
+  FFMPEG_MIN_TIMEOUT_MS,
   buildSlideFilter,
+  computeFfmpegTimeoutMs,
   normalizeImageSlide,
   normalizeSlideshowSource,
   normalizeVideoSlide,
@@ -149,8 +151,8 @@ describe("slideshow renderer", () => {
     ]);
     const outputs = await renderPerSlideVideos({ spec, sourcePaths, dir: "C:/tmp" });
     expect(outputs).toHaveLength(2);
-    expect(outputs[0]).toContain("slide-00");
-    expect(outputs[1]).toContain("slide-01");
+    expect(outputs[0]).toContain("slide-0.mp4");
+    expect(outputs[1]).toContain("slide-1.mp4");
     expect(run).toHaveBeenCalledTimes(2);
   });
 
@@ -216,6 +218,32 @@ describe("slideshow renderer", () => {
     const args = run.mock.calls[0]?.[0] ?? [];
     expect(args).toContain("concat");
     expect(args.join(" ")).not.toContain(slidePaths[0]);
+  });
+
+  it("computeFfmpegTimeoutMs never returns less than the floor", () => {
+    expect(computeFfmpegTimeoutMs(0)).toBe(FFMPEG_MIN_TIMEOUT_MS);
+    expect(computeFfmpegTimeoutMs(1)).toBe(FFMPEG_MIN_TIMEOUT_MS);
+  });
+
+  it("computeFfmpegTimeoutMs scales up for a long master duration", () => {
+    const timeout = computeFfmpegTimeoutMs(300);
+    expect(timeout).toBeGreaterThan(FFMPEG_MIN_TIMEOUT_MS);
+  });
+
+  it("normalizeImageSlide scales its FFmpeg timeout with slide duration", async () => {
+    run.mockClear();
+    await normalizeImageSlide({
+      imagePath: "C:/in.jpg",
+      outputPath: "C:/out.mp4",
+      w: 1920,
+      h: 1080,
+      fit: "cover",
+      fps: 30,
+      durationSec: 300,
+    });
+    const opts = run.mock.calls[0]?.[1];
+    expect(opts?.timeoutMs).toBe(computeFfmpegTimeoutMs(300));
+    expect(opts?.timeoutMs).toBeGreaterThan(FFMPEG_MIN_TIMEOUT_MS);
   });
 
   it("renderSlideshowMaster chains xfade by input index, not by path, for fade/wipe", async () => {

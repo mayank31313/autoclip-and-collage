@@ -3,8 +3,16 @@ import path from "node:path";
 import type { SlideshowSpec } from "@/lib/schemas/slideshow";
 import { escapeConcatListPath, runFfmpeg } from "./ffmpeg";
 
-const FFMPEG_TIMEOUT_MS = 120_000;
+/** Floor for every slideshow FFmpeg call, even for very short slides or masters. */
+export const FFMPEG_MIN_TIMEOUT_MS = 120_000;
+/** Worst-case wall-clock allowance per second of rendered media (software x264, no hardware accel). */
+const FFMPEG_TIMEOUT_MS_PER_SEC = 5_000;
 const XFADE_TYPE: Record<"fade" | "wipe", string> = { fade: "fade", wipe: "wipeleft" };
+
+/** Scales the FFmpeg timeout with the media duration being rendered, never below the floor. */
+export function computeFfmpegTimeoutMs(durationSec: number): number {
+  return Math.max(FFMPEG_MIN_TIMEOUT_MS, Math.ceil(durationSec * FFMPEG_TIMEOUT_MS_PER_SEC));
+}
 
 export interface SlideFilterArgs {
   w: number;
@@ -56,7 +64,7 @@ export async function normalizeImageSlide(args: NormalizeImageSlideArgs): Promis
       String(args.durationSec),
       args.outputPath,
     ],
-    { timeoutMs: FFMPEG_TIMEOUT_MS },
+    { timeoutMs: computeFfmpegTimeoutMs(args.durationSec) },
   );
 }
 
@@ -90,7 +98,7 @@ export async function normalizeVideoSlide(args: NormalizeVideoSlideArgs): Promis
       "libx264",
       args.outputPath,
     ],
-    { timeoutMs: FFMPEG_TIMEOUT_MS },
+    { timeoutMs: computeFfmpegTimeoutMs(args.durationSec) },
   );
 }
 
@@ -144,7 +152,7 @@ export async function renderPerSlideVideos(args: RenderPerSlideArgs): Promise<st
     if (sourcePath === undefined) {
       throw new Error(`Missing source file for slide ${slide.id}`);
     }
-    const outputPath = path.join(dir, `slide-${String(slide.id).padStart(2, "0")}.mp4`);
+    const outputPath = path.join(dir, `slide-${slide.id}.mp4`);
     await normalizeSlideshowSource({
       sourcePath,
       outputPath,
@@ -161,13 +169,17 @@ export async function renderPerSlideVideos(args: RenderPerSlideArgs): Promise<st
   return outputs;
 }
 
-async function concatSlides(slidePaths: readonly string[], outputPath: string): Promise<void> {
+async function concatSlides(
+  slidePaths: readonly string[],
+  outputPath: string,
+  masterDurationSec: number,
+): Promise<void> {
   const listPath = `${outputPath}.concat.txt`;
   const lines = slidePaths.map((file) => `file '${escapeConcatListPath(path.resolve(file))}'`);
   await writeFile(listPath, lines.join("\n"));
   // All normalized slides share codec/pix_fmt/fps, so a stream copy is safe and avoids a re-encode.
   await runFfmpeg(["-f", "concat", "-safe", "0", "-i", listPath, "-c", "copy", outputPath], {
-    timeoutMs: FFMPEG_TIMEOUT_MS,
+    timeoutMs: computeFfmpegTimeoutMs(masterDurationSec),
   });
 }
 
@@ -210,7 +222,7 @@ async function xfadeSlides(
       "libx264",
       outputPath,
     ],
-    { timeoutMs: FFMPEG_TIMEOUT_MS },
+    { timeoutMs: computeFfmpegTimeoutMs(spec.masterDurationSec) },
   );
 }
 
@@ -224,7 +236,7 @@ export interface RenderMasterArgs {
 export async function renderSlideshowMaster(args: RenderMasterArgs): Promise<void> {
   const { slidePaths, spec, outputPath } = args;
   if (spec.transition.type === "cut" || slidePaths.length === 1) {
-    await concatSlides(slidePaths, outputPath);
+    await concatSlides(slidePaths, outputPath, spec.masterDurationSec);
     return;
   }
   await xfadeSlides(slidePaths, spec, outputPath);

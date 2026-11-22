@@ -17,6 +17,7 @@ const limits: CollageLimits = {
   maxImageUploadBytes: 2 * MB,
   maxCanvasPixels: 4_000_000,
   maxCanvasDimension: 3000,
+  maxSlideshowSources: 5,
 };
 const templates = [gridTemplate(2, 2), heroFourTemplate];
 const schema = createCollageFormSchema(limits, templates);
@@ -223,11 +224,10 @@ describe("buildCreateBody", () => {
     });
   });
 
-  it("prefers slideshow over polaroid when both are selected", () => {
+  it("builds a slideshow body when mode is slideshow", () => {
     const body = buildCreateBody(
       values({
-        mode: "polaroid",
-        slideshowSelected: true,
+        mode: "slideshow",
         slideshowSources: [
           { kind: "image", durationSec: 3, startSec: NaN, endSec: NaN, fit: "cover" },
           { kind: "video", durationSec: NaN, startSec: 1, endSec: 5, fit: "contain" },
@@ -242,6 +242,42 @@ describe("buildCreateBody", () => {
         { key: "k2", kind: "video", startSec: 1, endSec: 5, fit: "contain" },
       ],
     });
+  });
+});
+
+describe("mode exclusivity", () => {
+  it("is a single three-way field: grid, polaroid and slideshow are mutually exclusive", () => {
+    expect(values({ mode: "grid" }).mode).toBe("grid");
+    expect(values({ mode: "polaroid" }).mode).toBe("polaroid");
+    expect(values({ mode: "slideshow" }).mode).toBe("slideshow");
+  });
+
+  it("builds a grid body after switching grid -> polaroid -> slideshow -> grid", () => {
+    const twoFiles = { files: [file("a.png"), file("b.png")] };
+
+    const grid = buildCreateBody(values({ mode: "grid", ...twoFiles }), ["k1", "k2"]);
+    expect(grid.mode).toBe("grid");
+
+    const polaroid = buildCreateBody(values({ mode: "polaroid", ...twoFiles }), ["k1", "k2"]);
+    expect(polaroid.mode).toBe("polaroid");
+
+    const slideshow = buildCreateBody(
+      values({
+        mode: "slideshow",
+        slideshowSources: [
+          { kind: "image", durationSec: 3, startSec: NaN, endSec: NaN, fit: "cover" },
+        ],
+      }),
+      ["k1"],
+    );
+    expect(slideshow.mode).toBe("slideshow");
+
+    const backToGrid = buildCreateBody(values({ mode: "grid", ...twoFiles }), ["k1", "k2"]);
+    expect(backToGrid.mode).toBe("grid");
+  });
+
+  it("rejects an unknown mode value", () => {
+    expect(issues(values({ mode: "bogus" as never }))[0]).toMatchObject({ path: "mode" });
   });
 });
 

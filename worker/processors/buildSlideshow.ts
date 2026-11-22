@@ -266,7 +266,8 @@ async function buildSlideshow(
     await ctx.progress(PROGRESS_AFTER_MASTER);
 
     const zipPath = path.join(dir, "slideshow.zip");
-    await deps.writeZip([masterPath, ...slidePaths], zipPath);
+    // The ZIP packages only the per-slide MP4s (named slide-{n}.mp4); the master is downloaded separately.
+    await deps.writeZip([...slidePaths], zipPath);
 
     return await storeOutputs(deps, {
       jobId: ctx.job.id,

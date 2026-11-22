@@ -4,4 +4,6 @@ export interface CollageLimits {
   maxImageUploadBytes: number;
   maxCanvasPixels: number;
   maxCanvasDimension: number;
+  /** Server-configured `SLIDESHOW_MAX_SLIDES`; the slideshow source-count cap shown in the UI. */
+  maxSlideshowSources: number;
 }

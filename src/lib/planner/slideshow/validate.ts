@@ -36,5 +36,25 @@ export function validateSlideshowSpec(spec: SlideshowSpec): readonly SlideshowIs
   if (spec.transition.type === "cut" && spec.transition.durationSec !== 0) {
     issues.push({ path: ["transition", "durationSec"], message: "cut requires zero transition" });
   }
+  if (spec.transition.type !== "cut" && spec.slides.length > 1) {
+    const t = spec.transition.durationSec;
+    const lastIndex = spec.slides.length - 1;
+    spec.slides.forEach((slide, index) => {
+      if (t >= slide.durationSec) {
+        issues.push({
+          path: ["transition", "durationSec"],
+          message: `transition duration must be less than slide ${index}'s duration`,
+        });
+        return;
+      }
+      const isMiddle = index > 0 && index < lastIndex;
+      if (isMiddle && t > slide.durationSec / 2) {
+        issues.push({
+          path: ["transition", "durationSec"],
+          message: `transition duration must not exceed half of slide ${index}'s duration`,
+        });
+      }
+    });
+  }
   return issues;
 }

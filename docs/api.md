@@ -286,9 +286,10 @@ Each entry in `sources` is a previously presigned upload `key` plus:
 
 The response is the same `202` with a `jobId` (the job `type` is `collage.slideshow`). A succeeded
 job's result (see [GET /api/jobs/:id](#get-apijobsid)) contains a short-lived MP4 master download
-URL, a short-lived ZIP download URL, and one short-lived URL per rendered slide. The ZIP contains
-the master as `master.mp4` plus one normalized per-slide clip named `slide-00.mp4`, `slide-01.mp4`,
-and so on (zero-padded, one entry per source in request order).
+URL, a short-lived ZIP download URL, and one short-lived URL per rendered slide. The master is a
+silent MP4 (no audio track). The ZIP contains only the normalized per-slide clips, named
+`slide-0.mp4`, `slide-1.mp4`, and so on (one entry per source, in request order; the master is not
+included).
 
 Limits (server configuration, defaults shown):
 
@@ -437,8 +438,8 @@ slide for previewing:
 
 All URLs are signed fresh on every poll and expire after `expiresInSec`; the result is `null` until the job succeeds.
 
-A succeeded slideshow job (`type` is `collage.slideshow`) returns the MP4 master, a ZIP of the
-master plus every normalized per-slide clip, and a URL per slide for previewing:
+A succeeded slideshow job (`type` is `collage.slideshow`) returns the silent MP4 master, a ZIP of
+every normalized per-slide clip (the master is not included), and a URL per slide for previewing:
 
 ```json
 {

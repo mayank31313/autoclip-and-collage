@@ -24,11 +24,19 @@ const mocks = vi.hoisted(() => ({
   downloadObjectToFile: vi.fn(),
   register: vi.fn(),
   inspectVideo: vi.fn(),
+  inspectImage: vi.fn(),
   mkdtemp: vi.fn(),
   rm: vi.fn(),
 }));
-const { findActiveByHash, enqueueJob, headObject, downloadObjectToFile, register, inspectVideo } =
-  mocks;
+const {
+  findActiveByHash,
+  enqueueJob,
+  headObject,
+  downloadObjectToFile,
+  register,
+  inspectVideo,
+  inspectImage,
+} = mocks;
 vi.mock("@/server/db/repositories/apiKeys", () => ({
   apiKeysRepo: { findActiveByHash: mocks.findActiveByHash },
 }));
@@ -40,6 +48,10 @@ vi.mock("@/server/storage/objects", () => ({
   downloadObjectToFile: mocks.downloadObjectToFile,
 }));
 vi.mock("@/server/analyzers/video/metadata", () => ({ inspectVideo: mocks.inspectVideo }));
+vi.mock("@/server/analyzers/image/metadata", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/server/analyzers/image/metadata")>();
+  return { ...actual, inspectImage: mocks.inspectImage };
+});
 vi.mock("node:fs/promises", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs/promises")>();
   return { ...actual, mkdtemp: mocks.mkdtemp, rm: mocks.rm };
@@ -114,6 +126,12 @@ beforeEach(() => {
   });
   mocks.mkdtemp.mockReset().mockResolvedValue("/tmp/slideshow-probe-xyz");
   mocks.rm.mockReset().mockResolvedValue(undefined);
+  inspectImage.mockReset().mockResolvedValue({
+    assetId: "stub",
+    widthPx: 640,
+    heightPx: 480,
+    pixelCount: 640 * 480,
+  });
   register.mockReset().mockImplementation(async (args: { key: string }) => ({
     id: `asset-${args.key.split("/").pop()}`,
   }));
@@ -290,6 +308,19 @@ describe("POST /api/collages (slideshow)", () => {
 
   it("rejects duplicate source keys", async () => {
     const res = await call(body([imageSource("a.jpg"), imageSource("a.jpg")]));
+    await expectRejected(res, 400, "VALIDATION_FAILED");
+  });
+
+  it("probes image sources with sharp and rejects a corrupt image at create time", async () => {
+    // Imported dynamically so it is the same module instance `route.ts` currently holds: earlier
+    // tests in this file call `vi.resetModules()`, which would otherwise make a statically
+    // imported `AppError` fail `instanceof` checks inside the route handler.
+    const { AppError } = await import("@/server/http/errors");
+    inspectImage.mockRejectedValue(
+      new AppError("VALIDATION_FAILED", 400, "Image is corrupt or exceeds the pixel limit"),
+    );
+    const res = await call(body([imageSource("a.jpg")]));
+    expect(inspectImage).toHaveBeenCalled();
     await expectRejected(res, 400, "VALIDATION_FAILED");
   });
 });

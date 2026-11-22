@@ -14,6 +14,7 @@ const limits: CollageLimits = {
   maxImageUploadBytes: 2 * MB,
   maxCanvasPixels: 4_000_000,
   maxCanvasDimension: 3000,
+  maxSlideshowSources: 20,
 };
 const schema = createCollageFormSchema(limits, []);
 

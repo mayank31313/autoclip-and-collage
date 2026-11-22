@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { validateSlideshowSpec } from "@/lib/planner/slideshow/validate";
+import { SLIDESHOW_MIN_IMAGE_DURATION_SEC } from "@/lib/planner/slideshow/defaults";
 
 export const SLIDESHOW_JOB_TYPE = "collage.slideshow";
 
@@ -17,12 +18,20 @@ export const SlideshowSourceSchema = z
     fit: SlideshowFit.default("cover"),
   })
   .superRefine((source, ctx) => {
-    if (source.kind === "image" && source.durationSec === undefined) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["durationSec"],
-        message: "image durationSec is required",
-      });
+    if (source.kind === "image") {
+      if (source.durationSec === undefined) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["durationSec"],
+          message: "image durationSec is required",
+        });
+      } else if (source.durationSec < SLIDESHOW_MIN_IMAGE_DURATION_SEC) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["durationSec"],
+          message: `image durationSec must be at least ${SLIDESHOW_MIN_IMAGE_DURATION_SEC}s`,
+        });
+      }
     }
     if (source.kind === "video" && source.startSec !== undefined && source.endSec === undefined) {
       ctx.addIssue({
@@ -50,6 +59,10 @@ export const SlideshowOptions = z
   .refine(
     (options) => options.transition !== "cut" || options.transitionSec === 0,
     "cut requires transitionSec to be zero",
+  )
+  .refine(
+    (options) => options.transition === "cut" || options.transitionSec > 0,
+    "fade and wipe require a positive transitionSec",
   );
 
 export const SlideshowWorkerSource = z.object({

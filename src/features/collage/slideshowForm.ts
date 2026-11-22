@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { CreateCollageBody } from "@/lib/schemas/api";
 import { SlideshowCanvas, SlideshowFit } from "@/lib/schemas/slideshow";
+import { SLIDESHOW_MIN_IMAGE_DURATION_SEC } from "@/lib/planner/slideshow/defaults";
 
 export type SlideshowSourceKind = "image" | "video";
 export type SlideshowFitValue = z.infer<typeof SlideshowFit>;
@@ -18,8 +19,6 @@ export const SLIDESHOW_VIDEO_TYPES = [
 /** Accepted MIME types for a slideshow source: still images or video clips. */
 export const SLIDESHOW_TYPES = [...SLIDESHOW_IMAGE_TYPES, ...SLIDESHOW_VIDEO_TYPES] as const;
 
-/** Mirrors the server's default slideshow slide cap (`SLIDESHOW_MAX_SLIDES`). */
-export const SLIDESHOW_MAX_SOURCES = 20;
 export const DEFAULT_IMAGE_DURATION_SEC = 3;
 
 const IMAGE_EXTENSION_BY_TYPE: Record<string, RegExp> = {
@@ -120,7 +119,10 @@ export function buildSlideshowBody(values: SlideshowFormValues, keys: string[]):
       canvas: values.canvas,
       fps: values.fps,
       transition: values.transition,
-      transitionSec: values.transitionSec,
+      // "cut" always submits a zero transitionSec: the UI hides the field for "cut", but a
+      // stale non-zero value (left over from switching away from fade/wipe) must never reach
+      // the server's `.refine()` as a raw, unfriendly Zod error.
+      transitionSec: values.transition === "cut" ? 0 : values.transitionSec,
     },
     format: "mp4",
   });
@@ -133,11 +135,14 @@ export interface FormProblem {
 
 function sourceDraftProblems(draft: SlideshowSourceDraft, index: number): FormProblem[] {
   if (draft.kind === "image") {
-    if (!Number.isFinite(draft.durationSec) || draft.durationSec <= 0) {
+    if (
+      !Number.isFinite(draft.durationSec) ||
+      draft.durationSec < SLIDESHOW_MIN_IMAGE_DURATION_SEC
+    ) {
       return [
         {
           path: ["slideshowSources", index, "durationSec"],
-          message: "Enter how many seconds to show this image",
+          message: `Enter at least ${SLIDESHOW_MIN_IMAGE_DURATION_SEC} second(s) to show this image`,
         },
       ];
     }
@@ -160,12 +165,16 @@ function sourceDraftProblems(draft: SlideshowSourceDraft, index: number): FormPr
 }
 
 /** Client-side mirror of the server's slideshow checks: file count, kind, and per-source fields. */
-export function slideshowProblems(files: File[], sources: SlideshowSourceDraft[]): FormProblem[] {
+export function slideshowProblems(
+  files: File[],
+  sources: SlideshowSourceDraft[],
+  maxSources: number,
+): FormProblem[] {
   const problems: FormProblem[] = [];
-  if (files.length > SLIDESHOW_MAX_SOURCES) {
+  if (files.length > maxSources) {
     problems.push({
       path: ["files"],
-      message: `Select at most ${SLIDESHOW_MAX_SOURCES} files`,
+      message: `Select at most ${maxSources} files`,
     });
   }
   files.forEach((file, i) => {

@@ -631,7 +631,7 @@ Create `src/server/renderers/slideshow.ts`:
 - `buildSlideFilter({ w, h, fit })` returns `scale=w:h:force_original_aspect_ratio=increase,crop=w:h` for cover or `scale=w:h:force_original_aspect_ratio=decrease,pad=w:h:(ow-iw)/2:(oh-ih)/2` for contain.
 - `normalizeImageSlide` calls FFmpeg with `-loop 1`, `-framerate fps`, `-t durationSec`, `-i imagePath`, `-vf filter`, `-an`, `-pix_fmt yuv420p`, `-c:v libx264`, `-t`, and output MP4.
 - `normalizeVideoSlide` calls FFmpeg with `-ss startSec`, `-i videoPath`, `-t durationSec`, `-vf filter`, `-map 0:v:0`, `-an`, `-pix_fmt yuv420p`, `-c:v libx264`, and output MP4.
-- The same renderer also generates silent audio where no-audio normalized clips need consistent concatenation.
+- Every normalized clip and the master are rendered with `-an` (no audio track): the MVP slideshow output is silent, never generated with synthetic audio.
 - `renderSlideshowMaster` writes the master by direct concat for cut or `xfade=fade`/`xfade=wipeleft` for transitions.
 - It escapes every filter argument and never emits source paths into filtergraph strings.
 

@@ -31,7 +31,7 @@ const EnvSchema = z.object({
   SLIDESHOW_MAX_SLIDES: z.coerce.number().int().positive().default(20),
   SLIDESHOW_MAX_SLIDE_SEC: z.coerce.number().int().positive().default(30),
   SLIDESHOW_MAX_DURATION_SEC: z.coerce.number().int().positive().default(300),
-  SLIDESHOW_MAX_TRANSITION_SEC: z.coerce.number().int().positive().default(2),
+  SLIDESHOW_MAX_TRANSITION_SEC: z.coerce.number().positive().default(2),
   STUDIO_API_KEY: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
   PRESIGN_TTL_SEC: z.coerce.number().int().positive().default(900),
   WEBHOOK_TOLERANCE_SEC: z.coerce.number().int().positive().default(300),

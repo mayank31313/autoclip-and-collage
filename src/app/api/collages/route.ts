@@ -19,7 +19,7 @@ import {
   SlideshowSpec,
   type SlideshowWorkerInput,
 } from "@/lib/schemas/slideshow";
-import { isSupportedImageMime } from "@/server/analyzers/image/metadata";
+import { inspectImage, isSupportedImageMime } from "@/server/analyzers/image/metadata";
 import { inspectVideo } from "@/server/analyzers/video/metadata";
 import { getConfig } from "@/server/config";
 import { assetsRepo } from "@/server/db/repositories/assets";
@@ -231,6 +231,22 @@ async function probeVideoDuration(key: string, maxBytes: number) {
   }
 }
 
+/**
+ * Downloads an image source to a temp file only long enough for sharp to decode it, mirroring
+ * the video path's ffprobe-at-create check: rejects corrupt files and oversized pixel counts
+ * before the job is enqueued, instead of surfacing the failure only once the worker runs.
+ */
+async function probeImageMeta(key: string, maxBytes: number, maxPixels: number) {
+  const dir = await mkdtemp(path.join(tmpdir(), SLIDESHOW_TEMP_PREFIX));
+  try {
+    const filePath = path.join(dir, "source");
+    await downloadObjectToFile(key, filePath, maxBytes);
+    return await inspectImage(filePath, key, maxPixels);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
 async function verifySlideshowSource(
   source: SlideshowSource,
   ownerId: string,
@@ -249,6 +265,9 @@ async function verifySlideshowSource(
   const { slideshowMaxSlideSec, maxImageUploadBytes, maxUploadBytes } = getConfig();
 
   if (source.kind === "image") {
+    if (!IMAGE_EXTENSIONS.has(extensionOf(source.key))) {
+      throw invalid("Unsupported image extension");
+    }
     if (!isSupportedImageMime(contentType)) throw invalid("Unsupported image content type");
     if (sizeBytes > maxImageUploadBytes) {
       throw new AppError("PAYLOAD_TOO_LARGE", 413, "Image exceeds the maximum upload size", {
@@ -260,6 +279,8 @@ async function verifySlideshowSource(
     if (durationSec > slideshowMaxSlideSec) {
       throw invalid(`durationSec must not exceed ${slideshowMaxSlideSec}s`);
     }
+    const { collageMaxInputPixels } = getConfig();
+    await probeImageMeta(source.key, maxImageUploadBytes, collageMaxInputPixels);
     return { key: source.key, kind: "image", contentType, sizeBytes, startSec: 0, endSec: durationSec, durationSec };
   }
 

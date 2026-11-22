@@ -21,7 +21,9 @@ import { CreateCollageBody } from "@/lib/schemas/api";
 import type { CollageFormat } from "@/lib/schemas/collage";
 import type { PolaroidAspect } from "@/lib/schemas/polaroid";
 
-export type CollageMode = "grid" | "polaroid";
+/** `slideshow` only ever reaches polaroid-specific logic through a guard, since
+ * `createCollageFormSchema` branches on `slideshow` before any polaroid check runs. */
+export type CollageMode = "grid" | "polaroid" | "slideshow";
 export type SlideLayoutMode = "even" | "custom";
 
 export interface PolaroidFormValues {

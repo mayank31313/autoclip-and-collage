@@ -50,6 +50,7 @@ export default async function CollagesPage() {
                 maxImageUploadBytes: config.maxImageUploadBytes,
                 maxCanvasPixels: config.collageMaxCanvasPixels,
                 maxCanvasDimension: config.collageMaxDimension,
+                maxSlideshowSources: config.slideshowMaxSlides,
               }}
               templates={templates}
               studioKey={Boolean(config.studioApiKey)}

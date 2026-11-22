@@ -28,7 +28,7 @@ export function ModeSwitch({ form }: { form: Form }) {
     <section className="rounded-2xl border border-border bg-card p-5 shadow-sm sm:p-6">
       <fieldset>
         <legend className="text-base font-semibold">What are you making?</legend>
-        <div className="mt-3 grid gap-2 sm:grid-cols-2">
+        <div className="mt-3 grid gap-2 sm:grid-cols-3">
           <Radio
             label="Collage"
             description="One image with every photo, as a photo wall or a grid."
@@ -39,6 +39,12 @@ export function ModeSwitch({ form }: { form: Form }) {
             label="Polaroid carousel"
             description="Polaroids on a torn diary page, sliced into swipeable slides."
             value="polaroid"
+            {...register("mode")}
+          />
+          <Radio
+            label="Slideshow"
+            description="Mix photos and video clips into a silent MP4, with transitions between slides."
+            value="slideshow"
             {...register("mode")}
           />
         </div>
