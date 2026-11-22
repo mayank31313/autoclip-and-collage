@@ -7,6 +7,18 @@ import {
   polaroidProblems,
   type PolaroidFormValues,
 } from "@/features/collage/polaroidForm";
+import {
+  SLIDESHOW_MAX_SOURCES,
+  buildSlideshowBody,
+  defaultSourceDraft,
+  slideshowKindOf,
+  slideshowProblems,
+  toSourceInput,
+  type SlideshowCanvasValue,
+  type SlideshowFpsValue,
+  type SlideshowSourceDraft,
+  type SlideshowTransitionValue,
+} from "@/features/collage/slideshowForm";
 import { CollageFormat } from "@/lib/schemas/collage";
 import { PolaroidAspect, PolaroidTemplate } from "@/lib/schemas/polaroid";
 import { PhotoWallPreset } from "@/lib/schemas/photoWall";
@@ -90,6 +102,8 @@ export function parseTemplateJson(text: string): ParsedTemplate {
 
 export interface CollageFormValues extends PolaroidFormValues {
   files: File[];
+  /** True when the user picked the Slideshow option; `mode` stays grid/polaroid underneath. */
+  slideshowSelected: boolean;
   style: LayoutChoice;
   /** A file template id or `rectangular`. */
   template: string;
@@ -100,6 +114,12 @@ export interface CollageFormValues extends PolaroidFormValues {
   width: number;
   height: number;
   format: CollageFormat;
+  slideshowCanvas: SlideshowCanvasValue;
+  slideshowFps: SlideshowFpsValue;
+  slideshowTransition: SlideshowTransitionValue;
+  slideshowTransitionSec: number;
+  /** One draft per selected file, by index; only meaningful when `slideshowSelected` is true. */
+  slideshowSources: SlideshowSourceDraft[];
 }
 
 export const COLLAGE_FORM_DEFAULTS: CollageFormValues = {
@@ -113,6 +133,12 @@ export const COLLAGE_FORM_DEFAULTS: CollageFormValues = {
   width: 1080,
   height: 1080,
   format: "png",
+  slideshowSelected: false,
+  slideshowCanvas: "16:9",
+  slideshowFps: 30,
+  slideshowTransition: "cut",
+  slideshowTransitionSec: 0,
+  slideshowSources: [],
 };
 
 /** Template ids usable with `count` images: file templates need an exact count. */
@@ -133,6 +159,11 @@ export function formatBytes(bytes: number): string {
 export function resolveCanvas(v: Pick<CollageFormValues, "preset" | "width" | "height">) {
   const preset = CANVAS_PRESETS.find((p) => p.id === v.preset);
   return preset ? { w: preset.w, h: preset.h } : { w: v.width, h: v.height };
+}
+
+/** Drafts for newly selected files, in slideshow mode: detected kind with sensible defaults. */
+export function buildSlideshowSourceDrafts(files: File[]): SlideshowSourceDraft[] {
+  return files.map((file) => defaultSourceDraft(slideshowKindOf(file) ?? "image"));
 }
 
 function fileProblem(file: File, maxBytes: number): string | null {
@@ -192,12 +223,10 @@ export function createCollageFormSchema(
 ) {
   // NaN is allowed through the type check so a cleared custom field reports a readable message.
   const size = z.union([z.number(), z.nan()]);
+  const fit = z.enum(["cover", "contain"]);
   return z
     .object({
-      files: z
-        .array(z.custom<File>((f) => f instanceof File))
-        .min(1, "Select at least one image")
-        .max(limits.maxImages, `Select at most ${limits.maxImages} images`),
+      files: z.array(z.custom<File>((f) => f instanceof File)).min(1, "Select at least one image"),
       style: LayoutChoice,
       template: z.string(),
       photoWallPreset: PhotoWallPreset,
@@ -207,6 +236,7 @@ export function createCollageFormSchema(
       height: size,
       format: CollageFormat,
       mode: z.enum(["grid", "polaroid"]),
+      slideshowSelected: z.boolean(),
       slides: size,
       slideAspect: PolaroidAspect,
       polaroidTemplate: PolaroidTemplate,
@@ -214,8 +244,41 @@ export function createCollageFormSchema(
       imagesPerSlide: z.array(size),
       slideSizes: z.array(z.string()),
       captions: z.array(z.string()),
+      slideshowCanvas: z.enum(["16:9", "9:16", "1:1"]),
+      slideshowFps: z.union([z.literal(24), z.literal(30)]),
+      slideshowTransition: z.enum(["cut", "fade", "wipe"]),
+      slideshowTransitionSec: z.number(),
+      slideshowSources: z.array(
+        z.object({
+          kind: z.enum(["image", "video"]),
+          durationSec: size,
+          startSec: size,
+          endSec: size,
+          fit,
+        }),
+      ),
     })
     .superRefine((v, ctx) => {
+      if (v.slideshowSelected) {
+        if (v.files.length > SLIDESHOW_MAX_SOURCES) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["files"],
+            message: `Select at most ${SLIDESHOW_MAX_SOURCES} files`,
+          });
+        }
+        for (const problem of slideshowProblems(v.files, v.slideshowSources)) {
+          ctx.addIssue({ code: "custom", path: problem.path, message: problem.message });
+        }
+        return;
+      }
+      if (v.files.length > limits.maxImages) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["files"],
+          message: `Select at most ${limits.maxImages} images`,
+        });
+      }
       v.files.forEach((file, i) => {
         const message = fileProblem(file, limits.maxImageUploadBytes);
         if (message) ctx.addIssue({ code: "custom", path: ["files", i], message });
@@ -251,6 +314,18 @@ function templateFields(values: CollageFormValues) {
 /** Builds the API request from form values and the object keys of the uploaded images. */
 export function buildCreateBody(values: CollageFormValues, keys: string[]): CreateCollageBody {
   if (values.mode === "polaroid") return buildPolaroidBody(values, keys);
+  if (values.slideshowSelected) {
+    return buildSlideshowBody(
+      {
+        canvas: values.slideshowCanvas,
+        fps: values.slideshowFps,
+        transition: values.slideshowTransition,
+        transitionSec: values.slideshowTransitionSec,
+        sources: values.slideshowSources.map(toSourceInput),
+      },
+      keys,
+    );
+  }
   return CreateCollageBody.parse({
     images: keys,
     mode: "grid",

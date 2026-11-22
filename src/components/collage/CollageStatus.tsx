@@ -1,7 +1,9 @@
 import { Button } from "@/components/ui/button";
 import { CollageJobResult, PolaroidJobResult } from "@/lib/schemas/api";
+import { SLIDESHOW_JOB_TYPE, SlideshowJobResult } from "@/lib/schemas/slideshow";
 import type { JobResponse } from "@/lib/schemas/job";
 import { PolaroidResult } from "@/components/collage/PolaroidResult";
+import { SlideshowResult } from "@/components/collage/SlideshowResult";
 import { POLAROID_JOB_TYPE } from "@/lib/schemas/polaroid";
 
 interface ProgressProps {
@@ -54,6 +56,14 @@ function ResultUnreadable() {
 }
 
 export function CollageResult({ job }: { job: JobResponse }) {
+  if (job.type === SLIDESHOW_JOB_TYPE) {
+    const slideshow = SlideshowJobResult.safeParse(job.result);
+    return slideshow.success ? (
+      <SlideshowResult output={slideshow.data.output} />
+    ) : (
+      <ResultUnreadable />
+    );
+  }
   if (job.type === POLAROID_JOB_TYPE) {
     const polaroid = PolaroidJobResult.safeParse(job.result);
     return polaroid.success ? (

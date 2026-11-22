@@ -3,18 +3,20 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation } from "@tanstack/react-query";
 import { ArrowRight, FileImage, ImagePlus, KeyRound, ShieldCheck, Sparkles } from "lucide-react";
-import { useMemo, useState, type ChangeEvent, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { CollageOptionsFields } from "@/components/collage/CollageOptionsFields";
 import { CollageFailure, CollageProgress, CollageResult } from "@/components/collage/CollageStatus";
 import { fieldErrorClass, inputClass, legendClass } from "@/components/collage/fieldStyles";
 import { ModeSwitch, PolaroidOptionsFields } from "@/components/collage/PolaroidOptionsFields";
+import { SlideshowOptionsFields } from "@/components/collage/SlideshowOptionsFields";
 import { Button } from "@/components/ui/button";
 import { createCollage } from "@/features/collage/api";
 import {
   COLLAGE_FORM_DEFAULTS,
   IMAGE_TYPES,
   buildCreateBody,
+  buildSlideshowSourceDrafts,
   compatibleTemplates,
   createCollageFormSchema,
   formatBytes,
@@ -22,6 +24,7 @@ import {
 } from "@/features/collage/form";
 import { isTerminalStatus } from "@/features/collage/job";
 import { effectiveSlides } from "@/features/collage/polaroidForm";
+import { SLIDESHOW_MAX_SOURCES, SLIDESHOW_TYPES } from "@/features/collage/slideshowForm";
 import type { CollageLimits } from "@/features/collage/limits";
 import { createSubmissionGuard } from "@/features/collage/submissionGuard";
 import { useJob } from "@/features/collage/useJob";
@@ -81,6 +84,13 @@ export function CollageCreateForm({ limits, templates, studioKey }: Props) {
   });
   const files = useWatch({ control: form.control, name: "files" });
   const mode = useWatch({ control: form.control, name: "mode" });
+  const slideshowSelected = useWatch({ control: form.control, name: "slideshowSelected" });
+  // Picking Collage or Polaroid resets any earlier Slideshow selection.
+  useEffect(() => {
+    form.setValue("slideshowSelected", false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode]);
+  const kind = slideshowSelected ? "slideshow" : mode;
   const { upload, progress, reset: resetUpload } = useUpload(key);
   const { job, error: jobError } = useJob(key, jobId);
 
@@ -123,6 +133,7 @@ export function CollageCreateForm({ limits, templates, studioKey }: Props) {
       "captions",
       selected.map(() => ""),
     );
+    form.setValue("slideshowSources", buildSlideshowSourceDrafts(selected));
     if (form.getValues("slideLayout") === "custom") {
       const slides = effectiveSlides(form.getValues("slides"), selected.length);
       form.setValue("imagesPerSlide", evenSlideCounts(selected.length, slides));
@@ -155,6 +166,10 @@ export function CollageCreateForm({ limits, templates, studioKey }: Props) {
     forgetUploads();
   }
 
+  function selectSlideshowMode() {
+    form.setValue("slideshowSelected", true, { shouldValidate: true, shouldDirty: true });
+  }
+
   const uploading = create.isPending && uploadedKeys === null;
   const polling = jobId !== null && !jobError && !(job && isTerminalStatus(job.status));
   const failure = collageFailure(create.error, jobError, job);
@@ -162,6 +177,11 @@ export function CollageCreateForm({ limits, templates, studioKey }: Props) {
   const uploadPercent = progress.length
     ? Math.round(progress.reduce((a, b) => a + b, 0) / progress.length)
     : 0;
+  const fileAccept = kind === "slideshow" ? SLIDESHOW_TYPES.join(",") : IMAGE_TYPES.join(",");
+  const fileHint =
+    kind === "slideshow"
+      ? `1 to ${SLIDESHOW_MAX_SOURCES} photos and video clips.`
+      : `1 to ${limits.maxImages} images, up to ${formatBytes(limits.maxImageUploadBytes)} each.`;
 
   return (
     <form onSubmit={onSubmit} noValidate className="space-y-5">
@@ -250,7 +270,9 @@ export function CollageCreateForm({ limits, templates, studioKey }: Props) {
               <span>
                 <span className="block text-sm font-medium">Choose images from your device</span>
                 <span className="mt-0.5 block text-xs text-muted-foreground">
-                  JPEG, PNG, or WebP
+                  {kind === "slideshow"
+                    ? "JPEG, PNG, WebP, MP4, MOV, WebM, or MKV"
+                    : "JPEG, PNG, or WebP"}
                 </span>
               </span>
             </div>
@@ -258,7 +280,7 @@ export function CollageCreateForm({ limits, templates, studioKey }: Props) {
               id="collage-images"
               type="file"
               multiple
-              accept={IMAGE_TYPES.join(",")}
+              accept={fileAccept}
               className="block w-full cursor-pointer text-sm text-muted-foreground file:mr-3 file:cursor-pointer file:rounded-lg file:border-0 file:bg-primary file:px-3 file:py-2 file:text-xs file:font-semibold file:text-primary-foreground hover:file:bg-primary/85 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
               onChange={onFilesChange}
               aria-invalid={fileErrors.length ? true : undefined}
@@ -266,7 +288,7 @@ export function CollageCreateForm({ limits, templates, studioKey }: Props) {
             />
           </div>
           <p id="collage-images-note" className="mt-2 text-xs leading-5 text-muted-foreground">
-            1 to {limits.maxImages} images, up to {formatBytes(limits.maxImageUploadBytes)} each.
+            {fileHint}
           </p>
           <ul id="collage-images-errors" className={fieldErrorClass}>
             {fileErrors.map((message) => (
@@ -298,7 +320,24 @@ export function CollageCreateForm({ limits, templates, studioKey }: Props) {
         </section>
 
         <ModeSwitch form={form} />
-        {mode === "polaroid" ? (
+        <section className="rounded-2xl border border-border bg-card p-5 shadow-sm sm:p-6">
+          <button
+            type="button"
+            aria-pressed={kind === "slideshow"}
+            onClick={selectSlideshowMode}
+            className="flex w-full min-w-0 cursor-pointer items-start gap-3 rounded-xl border border-border bg-background p-3 text-left transition-colors hover:bg-muted/50 aria-pressed:border-ring aria-pressed:bg-primary/5 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+          >
+            <span className="min-w-0">
+              <span className="block text-sm font-medium">Slideshow</span>
+              <span className="mt-1 block text-xs leading-5 text-muted-foreground">
+                Mix photos and video clips into a narrated MP4, with transitions between slides.
+              </span>
+            </span>
+          </button>
+        </section>
+        {kind === "slideshow" ? (
+          <SlideshowOptionsFields form={form} files={files} />
+        ) : mode === "polaroid" ? (
           <PolaroidOptionsFields form={form} files={files} />
         ) : (
           <CollageOptionsFields form={form} limits={limits} />
