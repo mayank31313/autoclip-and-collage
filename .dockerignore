@@ -1,6 +1,8 @@
 .github
+.git
 .next
 .superpowers
 node_modules
 tests
 .env*
+gha-creds-*.json

@@ -2,7 +2,7 @@ services:
   autoclip-server:
     build: .
     ports: ["3000:3000"]
-    image: gcr.io/mayank31313/autoclip
+    image: ghcr.io/mayank31313/autoclip
     environment:
       DATABASE_URL: postgres://autoclip:autoclip@postgres:5432/autoclip
       REDIS_URL: redis://redis:6379
@@ -15,7 +15,7 @@ services:
       WEBHOOK_SIGNING_SECRET: change-me-to-another-long-random-string
     depends_on: ["postgres", "redis", "minio"]
   autoclip-worker:
-    image: gcr.io/mayank31313/autoclip
+    image: ghcr.io/mayank31313/autoclip
     environment:
       DATABASE_URL: postgres://autoclip:autoclip@postgres:5432/autoclip
       REDIS_URL: redis://redis:6379

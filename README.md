@@ -151,6 +151,17 @@ npm run build
 
 Layout planners should include focused unit and property tests. The test suite uses Vitest and fast-check for pure logic, plus Playwright for browser workflows.
 
+### GitHub Actions image publishing
+
+Pull requests run lint, type-checking, tests, and build both production images without
+publishing. Pushes to `main` publish `autoclip-server` and `autoclip-worker` to
+`ghcr.io/<repository-owner>`, tagged with the commit SHA and `latest`. The server uses Next.js standalone
+output; the worker includes FFmpeg and runs separately.
+
+The workflow authenticates with `GITHUB_TOKEN` and requires permission to write
+packages. Configure package visibility and access in GitHub as needed. See
+[GitHub's container registry documentation](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry).
+
 ## Code of Conduct
 
 We want this project to be a respectful, inclusive, and constructive community.
