@@ -61,10 +61,13 @@ async function pixel(file: string, x: number, y: number): Promise<number[]> {
 /** Counts dark ink pixels in the caption strip of a polaroid, given its slide file. */
 async function inkPixels(file: string, item: PolaroidItem): Promise<number> {
   const { cx, cy } = centreOf(item);
+  const side = Math.round(item.w * SIDE_FRACTION);
+  const stripH = item.h - side - (item.w - 2 * side);
+  const stripCentreY = cy + item.h / 2 - stripH / 2;
   const { data, info } = await sharp(file)
     .extract({
       left: Math.round(cx - slideOf(item) * SLIDE_W) - 120,
-      top: Math.round(cy) + 165,
+      top: Math.round(stripCentreY) - 35,
       width: 240,
       height: 70,
     })

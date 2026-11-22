@@ -22,3 +22,32 @@ export function slideCountProblem(imageCount: number, slideCount: number): strin
   }
   return null;
 }
+
+/** Splits images across slides as evenly as possible; earlier slides take the remainder. */
+export function evenSlideCounts(imageCount: number, slideCount: number): number[] {
+  const base = Math.floor(imageCount / slideCount);
+  const extra = imageCount % slideCount;
+  return Array.from({ length: slideCount }, (_, i) => base + (i < extra ? 1 : 0));
+}
+
+/** Returns why per-slide image counts are unusable, or null when they are consistent. */
+export function imagesPerSlideProblem(
+  imageCount: number,
+  slideCount: number,
+  counts: readonly number[],
+): string | null {
+  if (counts.length !== slideCount) return `send one image count per slide (${slideCount})`;
+  const valid = counts.every(
+    (n) => Number.isInteger(n) && n >= 1 && n <= POLAROID_MAX_IMAGES_PER_SLIDE,
+  );
+  if (!valid) return `each slide holds 1 to ${POLAROID_MAX_IMAGES_PER_SLIDE} images`;
+  const total = counts.reduce((sum, n) => sum + n, 0);
+  return total === imageCount
+    ? null
+    : `slide counts add up to ${total} but there are ${imageCount} images`;
+}
+
+/** Returns why per-slide sizes are unusable, or null. */
+export function slideSizesProblem(slideCount: number, sizes: readonly unknown[]): string | null {
+  return sizes.length === slideCount ? null : `send one size per slide (${slideCount})`;
+}

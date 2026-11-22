@@ -8,7 +8,8 @@ import {
 } from "@/lib/schemas/collage";
 import { CollageTemplateDefinition, TemplateId } from "@/lib/schemas/collageTemplate";
 import { defaultSlideCount, slideCountProblem } from "@/lib/planner/collage/polaroid/slides";
-import { PolaroidOptions } from "@/lib/schemas/polaroid";
+import { PolaroidOptions, checkSlideLayout } from "@/lib/schemas/polaroid";
+import { PhotoWallPreset } from "@/lib/schemas/photoWall";
 
 export const ALLOWED_UPLOAD_TYPES = [
   "video/mp4",
@@ -59,12 +60,20 @@ export const CreateGridCollageBody = z
     template: TemplateId.optional(),
     /** An inline template; mutually exclusive with `template`. */
     customTemplate: CollageTemplateDefinition.optional(),
+    photoWallPreset: PhotoWallPreset.optional(),
     canvas: CollageCanvas,
     format: CollageFormat.default("png"),
     webhookUrl: HttpUrl.optional(),
   })
   .superRefine((body, ctx) => {
     checkUnique(ctx, body.images, "images", "image key");
+    if (body.style !== "photo-wall" && body.photoWallPreset !== undefined) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["photoWallPreset"],
+        message: "photoWallPreset requires photo-wall style",
+      });
+    }
     if (body.template !== undefined && body.customTemplate !== undefined) {
       ctx.addIssue({
         code: "custom",
@@ -91,7 +100,7 @@ export const CreatePolaroidCollageBody = z
   })
   .superRefine((body, ctx) => {
     checkUnique(ctx, body.images, "images", "image key");
-    const { slides, captions } = body.polaroid;
+    const { slides, captions, imagesPerSlide, slideSizes } = body.polaroid;
     if (captions !== undefined && captions.length !== body.images.length) {
       ctx.addIssue({
         code: "custom",
@@ -99,11 +108,14 @@ export const CreatePolaroidCollageBody = z
         message: "send exactly one caption per image",
       });
     }
-    const problem = slideCountProblem(
-      body.images.length,
-      slides ?? defaultSlideCount(body.images.length),
-    );
+    const slideCount = slides ?? imagesPerSlide?.length ?? defaultSlideCount(body.images.length);
+    const problem = slideCountProblem(body.images.length, slideCount);
     if (problem) ctx.addIssue({ code: "custom", path: ["polaroid", "slides"], message: problem });
+    checkSlideLayout(
+      ctx,
+      { imageCount: body.images.length, slides: slideCount, imagesPerSlide, slideSizes },
+      ["polaroid"],
+    );
   });
 export type CreatePolaroidCollageBody = z.infer<typeof CreatePolaroidCollageBody>;
 

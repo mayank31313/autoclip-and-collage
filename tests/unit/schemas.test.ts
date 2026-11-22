@@ -121,6 +121,13 @@ describe("CreateCollageBody", () => {
       canvas: { gap: 12, bg: "#ffffff" },
     });
   });
+  it("accepts photo-wall requests but rejects a grid template for them", () => {
+    expect(CreateCollageBody.safeParse({ ...valid, style: "photo-wall" }).success).toBe(true);
+    expect(
+      CreateCollageBody.safeParse({ ...valid, style: "photo-wall", template: "rectangular" })
+        .success,
+    ).toBe(false);
+  });
   it("rejects empty and duplicate image keys", () => {
     expect(CreateCollageBody.safeParse({ ...valid, images: [] }).success).toBe(false);
     expect(

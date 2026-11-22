@@ -4,12 +4,14 @@ import path from "node:path";
 import type { Job } from "bullmq";
 import type { ImageStats } from "@/lib/planner/collage/grid/types";
 import { planGridCollage as defaultPlan } from "@/lib/planner/collage/plan";
+import { planPhotoWall as defaultPlanPhotoWall } from "@/lib/planner/collage/photoWall";
 import { CollageWorkerInput, type CollageWorkerResult } from "@/lib/schemas/collage";
 import type { JobData } from "@/lib/schemas/job";
 import { inspectImage as defaultInspect } from "@/server/analyzers/image/metadata";
 import { getConfig, type Config } from "@/server/config";
 import { assetsRepo as defaultAssetsRepo } from "@/server/db/repositories/assets";
 import { renderCollage as defaultRender } from "@/server/renderers/collage";
+import { renderPhotoWall as defaultRenderPhotoWall } from "@/server/renderers/photoWall";
 import {
   downloadObjectToFile as defaultDownload,
   uploadFile as defaultUpload,
@@ -23,7 +25,9 @@ export interface BuildCollageDeps {
   uploadFile: typeof defaultUpload;
   inspectImage: typeof defaultInspect;
   planGridCollage: typeof defaultPlan;
+  planPhotoWall: typeof defaultPlanPhotoWall;
   renderCollage: typeof defaultRender;
+  renderPhotoWall: typeof defaultRenderPhotoWall;
   mkdtemp: typeof fsMkdtemp;
   rm: typeof fsRm;
   runJob: typeof defaultRunJob;
@@ -36,7 +40,9 @@ const defaultDeps: BuildCollageDeps = {
   uploadFile: defaultUpload,
   inspectImage: defaultInspect,
   planGridCollage: defaultPlan,
+  planPhotoWall: defaultPlanPhotoWall,
   renderCollage: defaultRender,
+  renderPhotoWall: defaultRenderPhotoWall,
   mkdtemp: fsMkdtemp,
   rm: fsRm,
   runJob: defaultRunJob,
@@ -67,6 +73,12 @@ function checkCanvas(canvas: CollageWorkerInput["canvas"], config: Config): void
 
 function plan(deps: BuildCollageDeps, input: CollageWorkerInput, images: readonly ImageStats[]) {
   try {
+    if (input.style === "photo-wall") {
+      return {
+        kind: "photo-wall" as const,
+        spec: deps.planPhotoWall({ canvas: input.canvas, images, preset: input.photoWallPreset }),
+      };
+    }
     return deps.planGridCollage({
       canvas: input.canvas,
       images,
@@ -74,11 +86,12 @@ function plan(deps: BuildCollageDeps, input: CollageWorkerInput, images: readonl
       ...(input.template !== undefined && { template: input.template }),
     });
   } catch (err) {
-    // The planner rejects degenerate geometry (e.g. a gap wider than the canvas) with RangeError.
     if (err instanceof RangeError) {
       throw userError(
         "VALIDATION_FAILED",
-        "The images cannot be laid out on this canvas; reduce the gap or image count",
+        input.style === "photo-wall"
+          ? "The photo wall cannot fit on this canvas; increase its size or use fewer images"
+          : "The images cannot be laid out on this canvas; reduce the gap or image count",
       );
     }
     throw err;
@@ -103,14 +116,23 @@ async function buildCollage(
     await ctx.progress(PROGRESS_AFTER_PLAN);
 
     const outputPath = path.join(dir, `collage.${input.format}`);
-    await deps.renderCollage({ layout, sourcePaths, outputPath, format: input.format });
+    if ("kind" in layout) {
+      await deps.renderPhotoWall({
+        spec: layout.spec,
+        sourcePaths,
+        outputPath,
+        format: input.format,
+      });
+    } else {
+      await deps.renderCollage({ layout, sourcePaths, outputPath, format: input.format });
+    }
     await ctx.progress(PROGRESS_AFTER_RENDER);
 
     // Fixed key per job: a retry overwrites the object and re-registers the same asset.
     const key = `outputs/${ctx.job.id}/collage.${input.format}`;
     const contentType = CONTENT_TYPES[input.format];
     const sizeBytes = await deps.uploadFile(key, outputPath, contentType);
-    const { w: width, h: height } = layout.canvas;
+    const { w: width, h: height } = input.canvas;
     const asset = await deps.assetsRepo.register({
       ownerId: ctx.job.ownerId,
       key,

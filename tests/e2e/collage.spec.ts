@@ -134,6 +134,21 @@ test("uploads, creates, and downloads a collage", async ({ page }) => {
   );
 });
 
+test("chooses a photo wall and creates a single image", async ({ page }) => {
+  const png = await makePng();
+  const bodies = await mockSuccessfulRun(page, png);
+  await fillForm(page, png, 2);
+  await page.getByRole("radio", { name: "Photo wall", exact: true }).check();
+  await page.getByRole("radio", { name: /Midnight exhibition/ }).check();
+  await page.getByRole("button", { name: "Create collage" }).click();
+  await expect(page.getByRole("img", { name: "Generated collage" })).toBeVisible();
+  expect(bodies[0]).toMatchObject({
+    mode: "grid",
+    style: "photo-wall",
+    photoWallPreset: "midnight",
+  });
+});
+
 test("retries a failed job without uploading again", async ({ page }) => {
   const png = await makePng();
   await mockStorage(page, png);
@@ -263,20 +278,24 @@ test("keeps the API key out of storage and URLs", async ({ page }) => {
   expect(stored).not.toContain("ak_test");
 });
 
-test("creates a collage from a ready-made template", async ({ page }) => {
+test("offers photo wall designs for any photo count", async ({ page }) => {
   const png = await makePng();
   const bodies = await mockSuccessfulRun(page, png);
 
   await fillForm(page, png, 4);
-  await page.getByRole("radio", { name: /^Template/ }).check();
-  await expect(page.getByRole("radio", { name: /3×3 grid/ })).toBeDisabled();
-  await expect(page.getByRole("img", { name: "2×2 grid layout preview" })).toBeVisible();
-  await page.getByRole("radio", { name: /2×2 grid/ }).check();
+  await page.getByRole("radio", { name: "Photo wall", exact: true }).check();
+  await expect(page.getByRole("radio", { name: /Minimal gallery/ })).toBeEnabled();
+  await expect(page.getByRole("radio", { name: /Pastel scrapbook/ })).toBeEnabled();
+  await page.getByRole("radio", { name: "Custom dimensions" }).check();
+  await page.getByLabel("Width (px)").fill("");
+  await expect(page.getByRole("radio", { name: /Pastel scrapbook/ })).toBeVisible();
+  await page.getByLabel("Width (px)").fill("1080");
+  await page.getByRole("radio", { name: /Pastel scrapbook/ }).check();
   await page.getByRole("button", { name: "Create collage" }).click();
   await expect(page.getByRole("img", { name: "Generated collage" })).toBeVisible();
 
   expect(bodies).toHaveLength(1);
-  expect(bodies[0]).toMatchObject({ style: "template", template: "grid-2x2" });
+  expect(bodies[0]).toMatchObject({ style: "photo-wall", photoWallPreset: "scrapbook" });
 });
 
 test("builds a custom layout with the grid builder and JSON editor", async ({ page }) => {

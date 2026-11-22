@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import { overlapRatio, rotatedBounds } from "@/lib/planner/collage/polaroid/geometry";
 import { planPaper } from "@/lib/planner/collage/polaroid/paper";
 import { planPolaroidCarousel } from "@/lib/planner/collage/polaroid/plan";
+import { framePieces, windowAspect } from "@/lib/planner/collage/polaroid/frame";
 import { defaultSlideCount, slideCountProblem } from "@/lib/planner/collage/polaroid/slides";
 import { validatePolaroidSpec } from "@/lib/planner/collage/polaroid/validate";
+import { POLAROID_TEMPLATE_IDS } from "@/lib/planner/collage/polaroid/templates";
 import { PolaroidSpec } from "@/lib/schemas/polaroid";
 import { createRng, hashStrings } from "@/lib/utils/rng";
 
@@ -127,6 +129,115 @@ describe("planPolaroidCarousel", () => {
     const [p0, p1, p2] = spec.polaroids;
     expect(p0 && p1 && p0.y + p0.h / 2 < p1.y + p1.h / 2).toBe(true);
     expect(p0 && p2 && p2.w < p0.w).toBe(true);
+  });
+
+  it("sizes each frame's photo window to its photo's shape", () => {
+    const frameFor = (aspect: number | undefined) => {
+      const input = { images: images(4), slideCount: 2, slideAspect: "4:5" } as const;
+      const withAspect = input.images.map((i) => ({ ...i, aspect }));
+      const first = planPolaroidCarousel({ ...input, images: withAspect }).polaroids[0];
+      if (!first) throw new Error("missing polaroid");
+      const { photoW, photoH } = framePieces(first.w, first.h);
+      return { photoW, photoH, w: first.w, h: first.h };
+    };
+    const square = frameFor(undefined);
+    expect(square.photoW / square.photoH).toBeCloseTo(1, 1);
+    const portrait = frameFor(2 / 3);
+    expect(portrait.photoW / portrait.photoH).toBeCloseTo(2 / 3, 1);
+    expect(portrait.h / portrait.w).toBeGreaterThan(square.h / square.w);
+    const landscape = frameFor(3 / 2);
+    expect(landscape.photoW / landscape.photoH).toBeCloseTo(3 / 2, 1);
+    expect(landscape.h / landscape.w).toBeLessThan(square.h / square.w);
+  });
+
+  it("limits the window's shape for panoramas so frames stay a sensible size", () => {
+    expect(windowAspect(5)).toBe(2);
+    expect(windowAspect(0.1)).toBe(0.5);
+    expect(windowAspect(undefined)).toBe(1);
+    expect(windowAspect(Number.NaN)).toBe(1);
+  });
+
+  it("makes polaroids larger than before", () => {
+    const spec = planPolaroidCarousel({ images: images(6), slideCount: 2, slideAspect: "4:5" });
+    expect(Math.max(...spec.polaroids.map((p) => p.w))).toBeGreaterThan(432);
+  });
+
+  it("splits images evenly across slides by default", () => {
+    const spec = planPolaroidCarousel({ images: images(5), slideCount: 2, slideAspect: "4:5" });
+    const onSlide = (s: number) =>
+      spec.polaroids.filter((p) => Math.floor((p.x + p.w / 2) / 1080) === s).length;
+    expect([onSlide(0), onSlide(1)]).toEqual([3, 2]);
+  });
+
+  it("puts the requested number of images on each slide", () => {
+    const spec = planPolaroidCarousel({
+      images: images(6),
+      slideCount: 3,
+      slideAspect: "4:5",
+      imagesPerSlide: [1, 4, 1],
+    });
+    const slides = spec.polaroids.map((p) => Math.floor((p.x + p.w / 2) / 1080));
+    expect(slides).toEqual([0, 1, 1, 1, 1, 2]);
+  });
+
+  it("sizes polaroids per slide", () => {
+    const base = {
+      images: images(4),
+      slideCount: 2,
+      slideAspect: "4:5",
+      template: "tidy",
+    } as const;
+    const widths = (slideSizes: Array<"small" | "medium" | "large">) =>
+      planPolaroidCarousel({ ...base, slideSizes }).polaroids.map((p) => p.w);
+    const [a0, a1, a2, a3] = widths(["small", "large"]);
+    expect(a0).toBe(a1);
+    expect(a2).toBe(a3);
+    expect(a0).toBeLessThan(a2 ?? 0);
+    const medium = widths(["medium", "medium"])[0] ?? 0;
+    expect(medium).toBeGreaterThan(a0 ?? 0);
+    expect(medium).toBeLessThan(a2 ?? 0);
+  });
+
+  it("plans a large slide beside a crowded small one without invalid overlap", () => {
+    const spec = planPolaroidCarousel({
+      images: images(7),
+      slideCount: 2,
+      slideAspect: "4:5",
+      template: "spotlight",
+      imagesPerSlide: [1, 6],
+      slideSizes: ["large", "small"],
+    });
+    expect(spec.polaroids).toHaveLength(7);
+  });
+
+  it("defaults to the scatter template", () => {
+    const input = { images: images(6), slideCount: 2, slideAspect: "4:5" } as const;
+    expect(planPolaroidCarousel({ ...input, template: "scatter" })).toEqual(
+      planPolaroidCarousel(input),
+    );
+  });
+
+  it("lays out each template differently", () => {
+    const input = { images: images(6), slideCount: 2, slideAspect: "4:5" } as const;
+    const layouts = POLAROID_TEMPLATE_IDS.map((template) =>
+      JSON.stringify(planPolaroidCarousel({ ...input, template }).polaroids),
+    );
+    expect(new Set(layouts).size).toBe(POLAROID_TEMPLATE_IDS.length);
+  });
+
+  it("spotlight makes every third polaroid the largest and centred", () => {
+    const spec = planPolaroidCarousel({
+      images: images(6),
+      slideCount: 2,
+      slideAspect: "4:5",
+      template: "spotlight",
+    });
+    const [p0, p1, p2, p3] = spec.polaroids;
+    expect(p0 && p1 && p2 && p3).toBeTruthy();
+    expect(p0?.w).toBeGreaterThan(p1?.w ?? 0);
+    expect(p3?.w).toBe(p0?.w);
+    const mid = spec.spread.h / 2;
+    expect(Math.abs((p0?.y ?? 0) + (p0?.h ?? 0) / 2 - mid)).toBeLessThan(40);
   });
 });
 

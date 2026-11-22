@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { CollageTemplateDefinition, RECTANGULAR_TEMPLATE_ID } from "./collageTemplate";
+import { PhotoWallPreset } from "./photoWall";
 
 /** A resolved template: the built-in any-count layout or a weighted-grid definition. */
 export const CollageTemplateSpec = z.union([
@@ -8,7 +9,7 @@ export const CollageTemplateSpec = z.union([
 ]);
 export type CollageTemplateSpec = z.infer<typeof CollageTemplateSpec>;
 
-export const CollageStyle = z.enum(["justified", "template"]);
+export const CollageStyle = z.enum(["justified", "template", "photo-wall"]);
 export type CollageStyle = z.infer<typeof CollageStyle>;
 
 export const CollageFormat = z.enum(["png", "jpeg"]);
@@ -35,11 +36,11 @@ export function checkStyleTemplate(
   imageCount: number,
 ): void {
   const { style, template } = value;
-  if (style === "justified" && template !== undefined) {
+  if (style !== "template" && template !== undefined) {
     ctx.addIssue({
       code: "custom",
       path: ["template"],
-      message: "template is not allowed with justified style",
+      message: "template is only allowed with template style",
     });
     return;
   }
@@ -80,12 +81,20 @@ export const CollageWorkerInput = z
     sourceAssetIds: z.array(z.string().min(1)).min(1),
     style: CollageStyle,
     template: CollageTemplateSpec.optional(),
+    photoWallPreset: PhotoWallPreset.optional(),
     canvas: CollageCanvas,
     format: CollageFormat,
   })
   .superRefine((input, ctx) => {
     checkUnique(ctx, input.sourceAssetIds, "sourceAssetIds", "asset ID");
     checkStyleTemplate(ctx, input, input.sourceAssetIds.length);
+    if (input.style !== "photo-wall" && input.photoWallPreset !== undefined) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["photoWallPreset"],
+        message: "photoWallPreset requires photo-wall style",
+      });
+    }
   });
 export type CollageWorkerInput = z.infer<typeof CollageWorkerInput>;
 

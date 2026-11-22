@@ -164,6 +164,15 @@ describe("custom templates", () => {
 });
 
 describe("buildCreateBody", () => {
+  it("submits a photo wall without carrying over the selected grid template", () => {
+    const body = buildCreateBody(
+      values({ style: "photo-wall", template: "rectangular", photoWallPreset: "midnight" }),
+      ["k1"],
+    );
+    expect(body).toMatchObject({ mode: "grid", style: "photo-wall", photoWallPreset: "midnight" });
+    expect(body).not.toHaveProperty("template");
+  });
+
   it("builds a justified PNG request with server defaults", () => {
     expect(buildCreateBody(values(), ["k1"])).toEqual({
       images: ["k1"],

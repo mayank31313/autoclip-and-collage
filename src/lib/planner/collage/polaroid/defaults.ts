@@ -7,6 +7,16 @@ export const POLAROID_IMAGES_PER_SLIDE_DEFAULT = 3;
 export const POLAROID_MAX_IMAGES_PER_SLIDE = 6;
 export const POLAROID_MAX_CAPTION_CHARS = 60;
 
+export const POLAROID_SLIDE_SIZES = ["small", "medium", "large"] as const;
+export type PolaroidSlideSize = (typeof POLAROID_SLIDE_SIZES)[number];
+export const DEFAULT_POLAROID_SLIDE_SIZE: PolaroidSlideSize = "large";
+/** Polaroid width multiplier per slide size; `large` is the full fit for the slide's photo count. */
+export const POLAROID_SLIDE_SIZE_SCALE: Record<PolaroidSlideSize, number> = {
+  small: 0.7,
+  medium: 0.85,
+  large: 1,
+};
+
 /** Torn sheet is inset from the spread edge so the diary page shows around it. */
 export const SHEET_INSET_PX = 80;
 export const TEAR_AMPLITUDE_PX = 12;
@@ -22,14 +32,18 @@ export const PAGE_HOLE_RADIUS_PX = 9;
 
 /** Polaroid frame height as a multiple of its width (square photo plus thick bottom strip). */
 export const POLAROID_FRAME_RATIO = 1.22;
-export const POLAROID_MAX_WIDTH_PX = 432;
+/** Frame border widths as fractions of the frame width. The photo window is what remains. */
+export const POLAROID_SIDE_FRACTION = 0.065;
+export const POLAROID_STRIP_FRACTION = 0.285;
+/** The photo window follows the photo's width/height within this range; beyond it the photo is fitted, never cropped. */
+export const POLAROID_MIN_PHOTO_ASPECT = 0.5;
+export const POLAROID_MAX_PHOTO_ASPECT = 2;
+export const POLAROID_MAX_WIDTH_PX = 540;
 export const POLAROID_MIN_WIDTH_PX = 220;
-export const POLAROID_SMALL_SCALE = 0.82;
+/** Largest frame height as a fraction of the usable sheet height. */
+export const POLAROID_MAX_HEIGHT_FRACTION = 0.62;
 export const POLAROID_MAX_ROTATION_DEG = 6;
 export const POLAROID_ROW_FILL = 0.92;
-export const POLAROID_JITTER_X_FRACTION = 0.1;
-export const POLAROID_JITTER_Y_FRACTION = 0.04;
-export const POLAROID_BAND_CENTERS = [0.27, 0.73] as const;
 /** Largest allowed overlap of two rotated bounds, as a fraction of the smaller one's area. */
 export const POLAROID_MAX_OVERLAP_RATIO = 0.4;
 export const POLAROID_TAPE_VARIANTS = ["top", "left", "right"] as const;

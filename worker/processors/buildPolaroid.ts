@@ -143,9 +143,16 @@ async function buildPolaroid(
       ctx.progress,
     );
     const spec = deps.planPolaroidCarousel({
-      images: stats.map((s, i) => ({ assetId: s.assetId, caption: input.captions[i] ?? "" })),
+      images: stats.map((s, i) => ({
+        assetId: s.assetId,
+        caption: input.captions[i] ?? "",
+        aspect: s.widthPx / s.heightPx,
+      })),
       slideCount: input.slides,
       slideAspect: input.slideAspect,
+      template: input.template,
+      ...(input.imagesPerSlide && { imagesPerSlide: input.imagesPerSlide }),
+      ...(input.slideSizes && { slideSizes: input.slideSizes }),
     });
     await ctx.progress(PROGRESS_AFTER_PLAN);
 

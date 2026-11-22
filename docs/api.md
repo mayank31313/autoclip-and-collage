@@ -102,6 +102,23 @@ Justified rows (the default layout; `template` must be omitted):
 }
 ```
 
+Photo wall (one image of framed photographs on a chosen wall):
+
+```json
+{
+  "images": ["<key 1>", "<key 2>"],
+  "mode": "grid",
+  "style": "photo-wall",
+  "photoWallPreset": "midnight",
+  "canvas": { "w": 1080, "h": 1080 }
+}
+```
+
+Photo-wall frames preserve the complete image in upload order. `photoWallPreset` is optional and
+accepts `warm` (default), `gallery`, `midnight`, or `scrapbook`. Each preset determines the wall
+background and arrangement; `canvas.bg` and `canvas.gap` do not affect photo walls.
+`photoWallPreset` is rejected for other styles.
+
 Named template (`style: "template"` requires exactly one of `template` or `customTemplate`):
 
 ```json
@@ -142,8 +159,8 @@ are required but only used for messages):
 
 Defaults: `canvas.gap` is `12` px, `canvas.bg` is `#ffffff` (`#RRGGBB`), `format` is `png`, and
 `webhookUrl` is optional (http/https). `format` is the output encoding: `png` or `jpeg` (JPEG is
-flattened onto the background color). `mode` is `grid` or `polaroid`; `style` (`justified` or `template`), `template`,
-`customTemplate` and `canvas` apply only to `mode: "grid"`. `template` and `customTemplate` are rejected with `style: "justified"`, and sending
+flattened onto the background color). `mode` is `grid` or `polaroid`; `style` (`justified`, `template`, or `photo-wall`), `template`,
+`customTemplate` and `canvas` apply only to `mode: "grid"`. `template` and `customTemplate` are rejected unless the style is `template`, and sending
 both returns `400`.
 
 Canvas: `w` and `h` are positive integer pixels, `gap` is a non-negative integer. The browser
@@ -169,7 +186,9 @@ cell. The shipped templates are:
 
 An unknown template id or a mismatched count returns `400`. Justified rows accept 1 to the maximum
 number of images.
-Images are placed automatically to minimize crop and aspect mismatch; upload order breaks ties.
+Images are placed automatically to minimize aspect mismatch; upload order breaks ties. Photos are
+never cropped: each one is fitted whole inside its cell, and any spare space in the cell shows the
+canvas background.
 
 ### Polaroid carousel (`mode: "polaroid"`)
 
@@ -185,6 +204,9 @@ for this mode.
   "polaroid": {
     "slides": 2,
     "slideAspect": "4:5",
+    "template": "scatter",
+    "imagesPerSlide": [3, 1],
+    "slideSizes": ["large", "small"],
     "captions": ["Summer 2025", "", "Road trip", "Home"]
   },
   "format": "png",
@@ -193,12 +215,26 @@ for this mode.
 ```
 
 - `slideAspect` (required): `4:5` (1080×1350 px slides) or `1:1` (1080×1080 px slides).
+- `template` (optional, default `scatter`): the placement style. `scatter` (tilted, two staggered
+  rows), `tidy` (even sizes, nearly straight zigzag), `cascade` (stepped diagonal), or `spotlight`
+  (every third polaroid is large and centred).
+- `imagesPerSlide` (optional): the number of images on each slide, in order. Each entry is 1 to 6
+  and the entries must add up to the number of images. When `slides` is omitted it is the length of
+  this array. Defaults to an even split, with earlier slides taking the remainder.
+- `slideSizes` (optional): `small`, `medium`, or `large` for each slide, one entry per slide.
+  `large` (the default) is the biggest polaroid that fits the slide's photo count; `medium` and
+  `small` are 85% and 70% of that. Where a large polaroid would crowd a neighbouring slide, it is
+  shrunk slightly to stay clear.
 - `slides` (optional): 2 to 10. Defaults to about three images per slide (`ceil(images / 3)`, kept
   between 2 and 10). There must be at least one image per slide and at most six per slide.
 - `captions` (optional): exactly one entry per image, up to 60 characters each, plain text. An empty
   string leaves that polaroid's caption strip blank. Captions are written in a handwriting font.
 - `format` (`png` or `jpeg`, default `png`) applies to the slides. Placement is automatic and
   deterministic for the same ordered images.
+- Photos are never cropped. Each polaroid's photo window takes the shape of its photo, so portrait
+  photos get taller frames and landscape photos wider ones. Photos more extreme than 1:2 or 2:1 are
+  fitted whole inside a 1:2 or 2:1 window, leaving a little frame colour above and below or at the
+  sides.
 
 The response is the same `202` with a `jobId` (the job `type` is `collage.polaroid`).
 

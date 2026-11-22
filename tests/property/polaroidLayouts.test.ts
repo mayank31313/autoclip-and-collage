@@ -1,30 +1,64 @@
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
-import { POLAROID_MAX_ROTATION_DEG } from "@/lib/planner/collage/polaroid/defaults";
+import {
+  POLAROID_MAX_ROTATION_DEG,
+  POLAROID_SLIDE_SIZES,
+  type PolaroidSlideSize,
+} from "@/lib/planner/collage/polaroid/defaults";
 import { planPolaroidCarousel } from "@/lib/planner/collage/polaroid/plan";
+import { POLAROID_TEMPLATE_IDS } from "@/lib/planner/collage/polaroid/templates";
 
-const MAX_IMAGES = 20;
 const MAX_PER_SLIDE = 6;
 
-const planInput = fc.integer({ min: 2, max: 10 }).chain((slideCount) =>
-  fc
-    .integer({ min: slideCount, max: Math.min(MAX_IMAGES, slideCount * MAX_PER_SLIDE) })
-    .chain((count) =>
-      fc.record({
-        slideCount: fc.constant(slideCount),
-        slideAspect: fc.constantFrom("4:5" as const, "1:1" as const),
-        ids: fc.uniqueArray(fc.string({ minLength: 1, maxLength: 12 }), {
-          minLength: count,
-          maxLength: count,
-        }),
+const planInput = fc
+  .integer({ min: 2, max: 10 })
+  .chain((slideCount) =>
+    fc.record({
+      slideCount: fc.constant(slideCount),
+      counts: fc.array(fc.integer({ min: 1, max: MAX_PER_SLIDE }), {
+        minLength: slideCount,
+        maxLength: slideCount,
       }),
-    ),
-);
+      sizes: fc.array(fc.constantFrom(...POLAROID_SLIDE_SIZES), {
+        minLength: slideCount,
+        maxLength: slideCount,
+      }),
+      slideAspect: fc.constantFrom("4:5" as const, "1:1" as const),
+      template: fc.constantFrom(...POLAROID_TEMPLATE_IDS),
+    }),
+  )
+  .chain((p) => {
+    const total = p.counts.reduce((sum, n) => sum + n, 0);
+    return fc
+      .tuple(
+        fc.uniqueArray(fc.string({ minLength: 1, maxLength: 12 }), {
+          minLength: total,
+          maxLength: total,
+        }),
+        // Covers portrait, landscape and panoramas beyond the window's aspect range.
+        fc.array(fc.double({ min: 0.2, max: 5, noNaN: true }), {
+          minLength: total,
+          maxLength: total,
+        }),
+      )
+      .map(([ids, aspects]) => ({ ...p, ids, aspects }));
+  });
 
-const toInput = (p: { slideCount: number; slideAspect: "4:5" | "1:1"; ids: string[] }) => ({
+const toInput = (p: {
+  slideCount: number;
+  counts: number[];
+  sizes: PolaroidSlideSize[];
+  slideAspect: "4:5" | "1:1";
+  template: (typeof POLAROID_TEMPLATE_IDS)[number];
+  ids: string[];
+  aspects: number[];
+}) => ({
   slideCount: p.slideCount,
   slideAspect: p.slideAspect,
-  images: p.ids.map((assetId) => ({ assetId, caption: "" })),
+  template: p.template,
+  imagesPerSlide: p.counts,
+  slideSizes: p.sizes,
+  images: p.ids.map((assetId, i) => ({ assetId, caption: "", aspect: p.aspects[i] })),
 });
 
 describe("planPolaroidCarousel (property)", () => {
@@ -48,6 +82,20 @@ describe("planPolaroidCarousel (property)", () => {
         for (const item of spec.polaroids) {
           expect(Math.abs(item.rotationDeg)).toBeLessThanOrEqual(POLAROID_MAX_ROTATION_DEG);
         }
+      }),
+      { numRuns: 60 },
+    );
+  });
+
+  it("puts exactly the requested number of polaroid centres on each slide", () => {
+    fc.assert(
+      fc.property(planInput, (p) => {
+        const spec = planPolaroidCarousel(toInput(p));
+        const perSlide = p.counts.map(() => 0);
+        for (const item of spec.polaroids) {
+          perSlide[Math.floor((item.x + item.w / 2) / spec.slide.w)]++;
+        }
+        expect(perSlide).toEqual(p.counts);
       }),
       { numRuns: 60 },
     );

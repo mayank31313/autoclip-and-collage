@@ -61,7 +61,7 @@ describe("renderCollage", () => {
     expect(Math.min(r ?? 0, g ?? 0, b ?? 0)).toBeGreaterThan(240);
   });
 
-  it("applies EXIF rotation before cover-resizing", async () => {
+  it("applies EXIF rotation before fitting", async () => {
     const left = join(dir, "orient.jpg");
     // Raw 4x2 (red left half, blue right half) tagged orientation 6 displays as 2x4: red top, blue bottom.
     const raw = Buffer.from([
@@ -92,6 +92,34 @@ describe("renderCollage", () => {
     expect(tb).toBeLessThan(60);
     expect(br).toBeLessThan(60);
     expect(bb).toBeGreaterThan(200);
+  });
+
+  it("fits a photo whose shape differs from its cell instead of cropping it", async () => {
+    const wide = join(dir, "wide.png");
+    const data = Buffer.alloc(8 * 4 * 3);
+    for (let y = 0; y < 4; y++) {
+      for (let x = 0; x < 8; x++) data.set(x === 0 ? [255, 0, 0] : [0, 0, 255], (y * 8 + x) * 3);
+    }
+    await sharp(data, { raw: { width: 8, height: 4, channels: 3 } }).toFile(wide);
+    const single: LayoutSpec = {
+      ...layout,
+      canvas: { w: 8, h: 8, gap: 0, bg: "#ffffff" },
+      cells: [
+        { id: 0, x: 0, y: 0, w: 8, h: 8, image: "w", focus: [0.5, 0.5], order: 0, pinned: false },
+      ],
+    };
+    const outputPath = join(dir, "fit-out.png");
+    await renderCollage({
+      layout: single,
+      sourcePaths: new Map([["w", wide]]),
+      outputPath,
+      format: "png",
+    });
+    // Both edge columns survive (cover would cut them off); the spare rows show the background.
+    expect(await pixel(outputPath, 0, 4)).toEqual([255, 0, 0]);
+    expect(await pixel(outputPath, 7, 4)).toEqual([0, 0, 255]);
+    expect(await pixel(outputPath, 3, 0)).toEqual([255, 255, 255]);
+    expect(await pixel(outputPath, 3, 7)).toEqual([255, 255, 255]);
   });
 
   it("rejects an invalid layout and a missing source", async () => {

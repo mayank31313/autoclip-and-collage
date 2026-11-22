@@ -65,24 +65,86 @@ describe("CreateCollageBody (polaroid)", () => {
       parses({ ...polaroidBody(2), images: ["uploads/o/u/a.heic", "uploads/o/u/b.png"] }),
     ).toBe(false);
     expect(parses(polaroidBody(4, { slideAspect: "16:9" }))).toBe(false);
+    expect(parses(polaroidBody(4, { template: "wavy" }))).toBe(false);
+    expect(parses(polaroidBody(4, { template: "cascade" }))).toBe(true);
     expect(parses(polaroidBody(4, {}, { webhookUrl: "ftp://example.com/x" }))).toBe(false);
     expect(parses(polaroidBody(4, {}, { webhookUrl: "https://example.com/x" }))).toBe(true);
   });
 });
 
 describe("resolvePolaroidOptions", () => {
-  it("fills the slide count and blank captions", () => {
+  it("fills the slide count, an even split, default sizes and blank captions", () => {
     expect(resolvePolaroidOptions({ slideAspect: "1:1" }, 7)).toEqual({
       slides: 3,
       slideAspect: "1:1",
+      template: "scatter",
+      imagesPerSlide: [3, 2, 2],
+      slideSizes: ["large", "large", "large"],
       captions: Array.from({ length: 7 }, () => ""),
     });
   });
 
-  it("keeps explicit slides and trims captions", () => {
+  it("keeps explicit options and trims captions", () => {
     expect(
-      resolvePolaroidOptions({ slides: 2, slideAspect: "4:5", captions: [" Hi ", ""] }, 2),
-    ).toEqual({ slides: 2, slideAspect: "4:5", captions: ["Hi", ""] });
+      resolvePolaroidOptions(
+        {
+          slides: 2,
+          slideAspect: "4:5",
+          template: "tidy",
+          imagesPerSlide: [1, 1],
+          slideSizes: ["small", "medium"],
+          captions: [" Hi ", ""],
+        },
+        2,
+      ),
+    ).toEqual({
+      slides: 2,
+      slideAspect: "4:5",
+      template: "tidy",
+      imagesPerSlide: [1, 1],
+      slideSizes: ["small", "medium"],
+      captions: ["Hi", ""],
+    });
+  });
+
+  it("derives the slide count from per-slide counts", () => {
+    const resolved = resolvePolaroidOptions({ slideAspect: "4:5", imagesPerSlide: [4, 1, 1] }, 6);
+    expect(resolved.slides).toBe(3);
+    expect(resolved.slideSizes).toHaveLength(3);
+  });
+});
+
+describe("per-slide layout", () => {
+  it("accepts counts that add up and sizes for every slide", () => {
+    const options = { slides: 2, imagesPerSlide: [5, 1], slideSizes: ["small", "large"] };
+    expect(parses(polaroidBody(6, options))).toBe(true);
+    expect(parses(polaroidBody(6, { imagesPerSlide: [5, 1] }))).toBe(true);
+  });
+
+  it("rejects counts that do not add up, are out of range or have the wrong length", () => {
+    expect(parses(polaroidBody(6, { imagesPerSlide: [4, 1] }))).toBe(false);
+    expect(parses(polaroidBody(7, { imagesPerSlide: [7, 0] }))).toBe(false);
+    expect(parses(polaroidBody(7, { imagesPerSlide: [7] }))).toBe(false);
+    expect(parses(polaroidBody(6, { slides: 3, imagesPerSlide: [3, 3] }))).toBe(false);
+  });
+
+  it("rejects unknown sizes and a size list of the wrong length", () => {
+    expect(parses(polaroidBody(4, { slides: 2, slideSizes: ["huge", "small"] }))).toBe(false);
+    expect(parses(polaroidBody(4, { slides: 2, slideSizes: ["small"] }))).toBe(false);
+  });
+
+  it("validates the worker input the same way and tolerates jobs without the fields", () => {
+    const input = {
+      sourceAssetIds: ["a", "b", "c"],
+      slides: 2,
+      slideAspect: "4:5",
+      captions: ["", "", ""],
+      format: "png",
+    };
+    expect(PolaroidWorkerInput.safeParse(input).success).toBe(true);
+    expect(PolaroidWorkerInput.safeParse({ ...input, imagesPerSlide: [2, 1] }).success).toBe(true);
+    expect(PolaroidWorkerInput.safeParse({ ...input, imagesPerSlide: [2, 2] }).success).toBe(false);
+    expect(PolaroidWorkerInput.safeParse({ ...input, slideSizes: ["small"] }).success).toBe(false);
   });
 });
 

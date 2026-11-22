@@ -288,6 +288,48 @@ describe("POST /api/collages", () => {
       },
     });
   });
+  it("enqueues a photo wall with the uploaded images in order", async () => {
+    const res = await call(
+      body([key("a.png"), key("b.png")], {
+        style: "photo-wall",
+        photoWallPreset: "scrapbook",
+      }),
+    );
+    expect(res.status).toBe(202);
+    expect(await res.json()).toEqual({ jobId: "job-1" });
+    expect(enqueueJob).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "collage.build",
+        input: expect.objectContaining({
+          sourceAssetIds: ["asset-a.png", "asset-b.png"],
+          style: "photo-wall",
+          photoWallPreset: "scrapbook",
+        }),
+      }),
+    );
+  });
+  it("rejects unknown wall presets and presets used with other styles", async () => {
+    expect(
+      (
+        await call(
+          body([key("a.png")], {
+            style: "photo-wall",
+            photoWallPreset: "unknown",
+          }),
+        )
+      ).status,
+    ).toBe(400);
+    expect(
+      (
+        await call(
+          body([key("a.png")], {
+            style: "justified",
+            photoWallPreset: "warm",
+          }),
+        )
+      ).status,
+    ).toBe(400);
+  });
   it("enqueues a multi-image template job in request order with asset IDs, not keys", async () => {
     headObject.mockResolvedValue({ contentType: "image/JPEG; charset=binary", sizeBytes: 5 });
     const keys = ["a.JPG", "b.jpeg", "c.webp", "d.png"].map((n) => key(n));

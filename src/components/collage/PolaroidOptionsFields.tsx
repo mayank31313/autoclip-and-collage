@@ -7,8 +7,13 @@ import {
   SectionHeading,
 } from "@/components/collage/CollageOptionsFields";
 import { fieldErrorClass, inputClass } from "@/components/collage/fieldStyles";
+import { PolaroidSlideFields } from "@/components/collage/PolaroidSlideFields";
 import type { CollageFormValues } from "@/features/collage/form";
-import { SLIDE_ASPECT_OPTIONS, effectiveSlides } from "@/features/collage/polaroidForm";
+import {
+  POLAROID_TEMPLATE_OPTIONS,
+  SLIDE_ASPECT_OPTIONS,
+  effectiveSlides,
+} from "@/features/collage/polaroidForm";
 import {
   POLAROID_MAX_CAPTION_CHARS,
   POLAROID_MAX_SLIDES,
@@ -26,7 +31,7 @@ export function ModeSwitch({ form }: { form: Form }) {
         <div className="mt-3 grid gap-2 sm:grid-cols-2">
           <Radio
             label="Collage"
-            description="One image with every photo arranged in a grid."
+            description="One image with every photo, as a photo wall or a grid."
             value="grid"
             {...register("mode")}
           />
@@ -91,11 +96,27 @@ export function PolaroidOptionsFields({ form, files }: { form: Form; files: File
             ))}
           </div>
         </fieldset>
+        <fieldset className="mt-5">
+          <legend className="text-sm font-medium">Layout template</legend>
+          <div className="mt-2 grid gap-2 sm:grid-cols-2">
+            {POLAROID_TEMPLATE_OPTIONS.map((option) => (
+              <Radio
+                key={option.id}
+                label={option.label}
+                description={option.description}
+                value={option.id}
+                {...register("polaroidTemplate")}
+              />
+            ))}
+          </div>
+        </fieldset>
       </section>
+
+      <PolaroidSlideFields form={form} files={files} />
 
       <section className="rounded-2xl border border-border bg-card p-5 shadow-sm sm:p-6">
         <SectionHeading
-          number="04"
+          number="05"
           title="Add captions"
           description="Optional handwriting on the bottom strip of each polaroid."
         />
@@ -124,7 +145,7 @@ export function PolaroidOptionsFields({ form, files }: { form: Form; files: File
         )}
       </section>
 
-      <OutputFormatSection form={form} number="05" />
+      <OutputFormatSection form={form} number="06" />
     </>
   );
 }

@@ -148,6 +148,29 @@ const exists = (p: string) =>
   );
 
 describe("buildCollage processor", () => {
+  it("builds a photo wall as a single collage output", async () => {
+    const h = harness({
+      input: {
+        sourceAssetIds: ["a1", "a2"],
+        style: "photo-wall",
+        photoWallPreset: "midnight",
+        canvas: { w: 1000, h: 600, gap: 12, bg: "#ffffff" },
+        format: "png",
+      },
+      overrides: {
+        renderPhotoWall: async (args) => {
+          expect(args.spec.items.map((item) => item.image)).toEqual(["a1", "a2"]);
+          expect(args.spec.canvas.bg).toBe("#252c39");
+          await writeFile(args.outputPath, "rendered wall");
+        },
+      },
+    });
+    await h.processor(h.bullJob());
+    expect(h.history).toEqual(["running", "succeeded"]);
+    expect(h.row.result).toMatchObject({ width: 1000, height: 600, format: "png" });
+    expect(h.renders).toEqual([]);
+  });
+
   it("runs queued -> running -> succeeded and persists an asset reference, not a URL", async () => {
     const h = harness();
     await h.processor(h.bullJob());
@@ -313,6 +336,24 @@ describe("buildCollage processor", () => {
       errorMessage: "The images cannot be laid out on this canvas; reduce the gap or image count",
     });
     expect(h.renders).toEqual([]);
+  });
+
+  it("explains how to fix a photo wall that cannot fit on its canvas", async () => {
+    const h = harness({
+      input: {
+        sourceAssetIds: ["a1", "a2"],
+        style: "photo-wall",
+        canvas: { w: 1, h: 1, gap: 12, bg: "#ffffff" },
+        format: "png",
+      },
+    });
+    await expect(h.processor(h.bullJob(0))).rejects.toBeInstanceOf(UnrecoverableError);
+    expect(h.row).toMatchObject({
+      status: "failed",
+      errorCode: "VALIDATION_FAILED",
+      errorMessage:
+        "The photo wall cannot fit on this canvas; increase its size or use fewer images",
+    });
   });
 
   it("rejects canvases above the configured limits", async () => {

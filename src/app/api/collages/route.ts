@@ -149,6 +149,7 @@ async function createGridJob(body: GridBody, ownerId: string) {
     sourceAssetIds,
     style: body.style,
     ...(template !== undefined && { template }),
+    ...(body.photoWallPreset !== undefined && { photoWallPreset: body.photoWallPreset }),
     canvas: body.canvas,
     format: body.format,
   };

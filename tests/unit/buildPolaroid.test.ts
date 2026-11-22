@@ -183,12 +183,13 @@ describe("buildPolaroid processor", () => {
     ]);
     expect(h.planSpy).toHaveBeenCalledWith({
       images: [
-        { assetId: "a1", caption: "" },
-        { assetId: "a2", caption: "Hi" },
-        { assetId: "a3", caption: "" },
+        { assetId: "a1", caption: "", aspect: 400 / 300 },
+        { assetId: "a2", caption: "Hi", aspect: 400 / 300 },
+        { assetId: "a3", caption: "", aspect: 400 / 300 },
       ],
       slideCount: 2,
       slideAspect: "4:5",
+      template: "scatter",
     });
     const render = h.renders[0];
     expect(render?.format).toBe("png");

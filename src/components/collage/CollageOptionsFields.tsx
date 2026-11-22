@@ -1,8 +1,10 @@
 "use client";
 
 import { useWatch, type UseFormReturn } from "react-hook-form";
-import { CustomTemplateBuilder, TemplatePicker } from "@/components/collage/CollageTemplateFields";
+import { CustomTemplateBuilder } from "@/components/collage/CollageTemplateFields";
 import { fieldErrorClass, inputClass } from "@/components/collage/fieldStyles";
+import { PHOTO_WALL_PRESETS, planPhotoWall } from "@/lib/planner/collage/photoWall";
+import type { PhotoWallPreset } from "@/lib/schemas/photoWall";
 import {
   CANVAS_PRESETS,
   CUSTOM_PRESET,
@@ -10,13 +12,69 @@ import {
   type CollageFormValues,
 } from "@/features/collage/form";
 import type { CollageLimits } from "@/features/collage/limits";
-import type { CollageTemplateDefinition } from "@/lib/schemas/collageTemplate";
 
 interface Props {
   form: UseFormReturn<CollageFormValues>;
   limits: CollageLimits;
-  templates: readonly CollageTemplateDefinition[];
-  fileCount: number;
+}
+
+const PREVIEW_IMAGES = ["#9aaf9d", "#d4ac97", "#a9b8c5", "#d8c495"].map((color, i) => ({
+  assetId: color,
+  widthPx: i % 2 ? 800 : 1000,
+  heightPx: i % 2 ? 1000 : 800,
+  pixelCount: 800_000,
+}));
+
+function WallPreview({ preset, aspect }: { preset: PhotoWallPreset; aspect: number }) {
+  const ratio = Number.isFinite(aspect) && aspect > 0 ? Math.max(0.4, Math.min(2.5, aspect)) : 1;
+  const w = Math.round(ratio >= 1 ? 300 : 300 * ratio);
+  const h = Math.round(ratio >= 1 ? 300 / ratio : 300);
+  const plan = planPhotoWall({
+    canvas: { w, h, gap: 12, bg: "#ffffff" },
+    images: PREVIEW_IMAGES,
+    preset,
+  });
+  return (
+    <svg viewBox={`0 0 ${w} ${h}`} className="h-32 w-full rounded-lg" aria-hidden="true">
+      <rect width={w} height={h} fill={plan.canvas.bg} />
+      {plan.items.map((item) => (
+        <g
+          key={item.image}
+          transform={`rotate(${item.rotationDeg} ${item.x + item.w / 2} ${item.y + item.h / 2})`}
+        >
+          <rect
+            x={item.x + 2}
+            y={item.y + 3}
+            width={item.w}
+            height={item.h}
+            fill="#30241e"
+            opacity=".18"
+          />
+          <rect x={item.x} y={item.y} width={item.w} height={item.h} fill="#fffdf6" />
+          <rect
+            x={item.x + item.w * 0.06}
+            y={item.y + item.w * 0.06}
+            width={item.w * 0.88}
+            height={item.h * 0.75}
+            fill={item.image}
+          />
+          <path
+            d={`M${item.x + item.w * 0.06} ${item.y + item.h * 0.75} l${item.w * 0.3} -${item.h * 0.3} l${item.w * 0.2} ${item.h * 0.15} l${item.w * 0.2} -${item.h * 0.2} l${item.w * 0.18} ${item.h * 0.35} Z`}
+            fill="#526f68"
+            opacity=".45"
+          />
+          <rect
+            x={item.x + item.w * 0.375}
+            y={item.y - item.w * 0.035}
+            width={item.w * 0.25}
+            height={item.w * 0.075}
+            fill="#e5cfa5"
+            opacity=".8"
+          />
+        </g>
+      ))}
+    </svg>
+  );
 }
 
 export function Radio(
@@ -64,7 +122,7 @@ export function SectionHeading({
   );
 }
 
-export function CollageOptionsFields({ form, limits, templates, fileCount }: Props) {
+export function CollageOptionsFields({ form, limits }: Props) {
   const { register, control, formState } = form;
   const errors = formState.errors;
   const style = useWatch({ control, name: "style" });
@@ -80,21 +138,49 @@ export function CollageOptionsFields({ form, limits, templates, fileCount }: Pro
         <SectionHeading
           number="03"
           title="Choose your layout"
-          description="Pick a flowing arrangement, a ready-made template, or design your own."
+          description="Set the mood with a photo wall, a flowing layout, or a grid of your own."
         />
         <fieldset>
           <legend className="sr-only">Layout style</legend>
-          <div className="grid gap-2 sm:grid-cols-3">
+          <label className="mb-2 flex cursor-pointer items-center gap-4 rounded-xl border border-border bg-background p-3 transition-colors hover:bg-muted/50 has-[:checked]:border-ring has-[:checked]:bg-primary/5">
+            <input
+              type="radio"
+              value="photo-wall"
+              aria-label="Photo wall"
+              className="size-4 shrink-0 accent-primary focus-visible:ring-3 focus-visible:ring-ring/50"
+              {...register("style")}
+            />
+            <svg viewBox="0 0 120 78" aria-hidden="true" className="h-20 w-28 shrink-0 rounded-lg">
+              <rect width="120" height="78" rx="8" fill="#e9ded0" />
+              <g transform="rotate(-8 31 39)">
+                <rect x="12" y="16" width="38" height="47" fill="#fffdf6" />
+                <rect x="15" y="19" width="32" height="34" fill="#96a99a" />
+                <path d="M15 49 25 36 31 43 37 34 47 49" fill="#6c8578" />
+                <rect x="25" y="13" width="13" height="6" fill="#e5cfa5" opacity=".8" />
+              </g>
+              <g transform="rotate(6 81 39)">
+                <rect x="59" y="12" width="42" height="52" fill="#fffdf6" />
+                <rect x="62" y="15" width="36" height="38" fill="#ccaa95" />
+                <circle cx="87" cy="24" r="5" fill="#f3d9b7" />
+                <path d="M62 50 74 34 82 43 89 36 98 50" fill="#a77f71" />
+                <rect x="73" y="9" width="14" height="6" fill="#e5cfa5" opacity=".8" />
+              </g>
+            </svg>
+            <span className="min-w-0">
+              <span className="block text-sm font-semibold">Photo wall</span>
+              <span className="mt-1 block text-xs leading-5 text-muted-foreground">
+                Framed prints arranged on a wall of your choice.
+              </span>
+              <span className="mt-1 block text-xs text-muted-foreground">
+                Every photo stays in view, in one image.
+              </span>
+            </span>
+          </label>
+          <div className="grid gap-2 sm:grid-cols-2">
             <Radio
               label="Justified rows"
               description="A balanced, flowing arrangement."
               value="justified"
-              {...register("style")}
-            />
-            <Radio
-              label="Template"
-              description="Choose a ready-made grid of slots."
-              value="template"
               {...register("style")}
             />
             <Radio
@@ -105,8 +191,37 @@ export function CollageOptionsFields({ form, limits, templates, fileCount }: Pro
             />
           </div>
         </fieldset>
-        {style === "template" && (
-          <TemplatePicker form={form} templates={templates} fileCount={fileCount} aspect={aspect} />
+        {style === "photo-wall" && (
+          <fieldset className="mt-5">
+            <legend className="text-sm font-semibold">Choose a photo wall</legend>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Each design adapts to your photos and canvas.
+            </p>
+            <div className="mt-3 grid grid-cols-2 gap-3 lg:grid-cols-4">
+              {PHOTO_WALL_PRESETS.map((wall) => (
+                <label
+                  key={wall.id}
+                  className="min-w-0 cursor-pointer rounded-xl border border-border bg-background p-2 transition-colors hover:bg-muted/50 has-[:checked]:border-ring has-[:checked]:bg-primary/5 has-[:focus-visible]:ring-3 has-[:focus-visible]:ring-ring/50"
+                >
+                  <WallPreview preset={wall.id} aspect={aspect} />
+                  <span className="mt-3 flex items-start gap-2">
+                    <input
+                      type="radio"
+                      value={wall.id}
+                      className="mt-0.5 size-4 shrink-0 accent-primary"
+                      {...register("photoWallPreset")}
+                    />
+                    <span className="min-w-0">
+                      <span className="block text-sm font-semibold">{wall.name}</span>
+                      <span className="mt-1 block text-xs leading-4 text-muted-foreground">
+                        {wall.description}
+                      </span>
+                    </span>
+                  </span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
         )}
         {style === "custom" && <CustomTemplateBuilder form={form} aspect={aspect} />}
       </section>

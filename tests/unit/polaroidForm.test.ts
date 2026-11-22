@@ -86,7 +86,7 @@ describe("buildCreateBody (polaroid)", () => {
     expect(body).toEqual({
       images: keys,
       mode: "polaroid",
-      polaroid: { slideAspect: "4:5", captions: ["Hi", "", "", ""] },
+      polaroid: { slideAspect: "4:5", template: "scatter", captions: ["Hi", "", "", ""] },
       format: "png",
     });
   });
@@ -99,8 +99,47 @@ describe("buildCreateBody (polaroid)", () => {
     expect(body).toEqual({
       images: keys,
       mode: "polaroid",
-      polaroid: { slides: 2, slideAspect: "1:1" },
+      polaroid: { slides: 2, slideAspect: "1:1", template: "scatter" },
       format: "jpeg",
     });
+  });
+
+  it("sends custom counts and per-slide sizes only when chosen", () => {
+    const body = buildCreateBody(
+      values(4, {
+        slides: 2,
+        slideLayout: "custom",
+        imagesPerSlide: [3, 1],
+        slideSizes: ["small", ""],
+      }),
+      keys,
+    );
+    expect(body).toMatchObject({
+      polaroid: { slides: 2, imagesPerSlide: [3, 1], slideSizes: ["small", "large"] },
+    });
+  });
+});
+
+describe("custom slide layout validation", () => {
+  const custom = (counts: number[], overrides: Partial<CollageFormValues> = {}) =>
+    values(6, { slides: 2, slideLayout: "custom", imagesPerSlide: counts, ...overrides });
+
+  it("accepts counts that add up to the number of photos", () => {
+    expect(issues(custom([5, 1]))).toEqual([]);
+  });
+
+  it("explains a total that does not match and entries that are unfilled or too large", () => {
+    expect(issues(custom([3, 1]))).toEqual([
+      { path: "imagesPerSlide", message: "Slide counts add up to 4 but there are 6 images" },
+    ]);
+    expect(issues(custom([6, Number.NaN]))[0]?.path).toBe("imagesPerSlide.1");
+    expect(issues(custom([7, 0]))[0]).toEqual({
+      path: "imagesPerSlide.0",
+      message: "Enter 1 to 6",
+    });
+  });
+
+  it("ignores custom counts while the layout is an even split", () => {
+    expect(issues(custom([1, 1], { slideLayout: "even" }))).toEqual([]);
   });
 });

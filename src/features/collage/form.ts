@@ -8,7 +8,8 @@ import {
   type PolaroidFormValues,
 } from "@/features/collage/polaroidForm";
 import { CollageFormat } from "@/lib/schemas/collage";
-import { PolaroidAspect } from "@/lib/schemas/polaroid";
+import { PolaroidAspect, PolaroidTemplate } from "@/lib/schemas/polaroid";
+import { PhotoWallPreset } from "@/lib/schemas/photoWall";
 import {
   CollageTemplateDefinition,
   RECTANGULAR_TEMPLATE_ID,
@@ -31,7 +32,7 @@ const HEIC_TYPE = /^image\/hei[cf]$/i;
 const HEIC_EXTENSION = /\.hei[cf]$/i;
 
 /** Layout picked in the form; `custom` is sent to the API as template style with an inline template. */
-export const LayoutChoice = z.enum(["justified", "template", "custom"]);
+export const LayoutChoice = z.enum(["justified", "template", "custom", "photo-wall"]);
 export type LayoutChoice = z.infer<typeof LayoutChoice>;
 
 export const CUSTOM_GRID_MAX_TRACKS = 6;
@@ -92,6 +93,7 @@ export interface CollageFormValues extends PolaroidFormValues {
   style: LayoutChoice;
   /** A file template id or `rectangular`. */
   template: string;
+  photoWallPreset: PhotoWallPreset;
   /** JSON text of the custom template (used when style is `custom`). */
   customTemplate: string;
   preset: z.infer<typeof PresetId>;
@@ -105,6 +107,7 @@ export const COLLAGE_FORM_DEFAULTS: CollageFormValues = {
   files: [],
   style: "justified",
   template: RECTANGULAR_TEMPLATE_ID,
+  photoWallPreset: "warm",
   customTemplate: stringifyTemplate(buildGridTemplate(DEFAULT_CUSTOM_GRID)),
   preset: "square",
   width: 1080,
@@ -197,6 +200,7 @@ export function createCollageFormSchema(
         .max(limits.maxImages, `Select at most ${limits.maxImages} images`),
       style: LayoutChoice,
       template: z.string(),
+      photoWallPreset: PhotoWallPreset,
       customTemplate: z.string(),
       preset: PresetId,
       width: size,
@@ -205,6 +209,10 @@ export function createCollageFormSchema(
       mode: z.enum(["grid", "polaroid"]),
       slides: size,
       slideAspect: PolaroidAspect,
+      polaroidTemplate: PolaroidTemplate,
+      slideLayout: z.enum(["even", "custom"]),
+      imagesPerSlide: z.array(size),
+      slideSizes: z.array(z.string()),
       captions: z.array(z.string()),
     })
     .superRefine((v, ctx) => {
@@ -231,6 +239,8 @@ export function createCollageFormSchema(
 
 function templateFields(values: CollageFormValues) {
   if (values.style === "justified") return { style: "justified" };
+  if (values.style === "photo-wall")
+    return { style: "photo-wall", photoWallPreset: values.photoWallPreset };
   if (values.style === "template") return { style: "template", template: values.template };
   const parsed = parseTemplateJson(values.customTemplate);
   // Validation runs first, so an invalid template here is a programming error.

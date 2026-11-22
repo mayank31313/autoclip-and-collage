@@ -2,6 +2,7 @@ import sharp, { type OverlayOptions } from "sharp";
 import { LayoutSpec } from "@/lib/schemas/layout";
 import type { CollageFormat } from "@/lib/schemas/collage";
 import { AppError } from "@/server/http/errors";
+import { renderFitted } from "@/server/renderers/fitImage";
 
 export interface RenderCollageArgs {
   layout: LayoutSpec;
@@ -11,8 +12,9 @@ export interface RenderCollageArgs {
 }
 
 /**
- * Executes a validated layout: EXIF-rotates and cover-resizes each populated cell, then
- * composites onto the background. Cells are rendered sequentially to bound native memory.
+ * Executes a validated layout: EXIF-rotates each populated cell's image and fits all of it inside the
+ * cell (no cropping), then composites onto the background. Cells are rendered sequentially to bound
+ * native memory.
  */
 export async function renderCollage(args: RenderCollageArgs): Promise<void> {
   const layout = LayoutSpec.parse(args.layout);
@@ -24,11 +26,7 @@ export async function renderCollage(args: RenderCollageArgs): Promise<void> {
     if (sourcePath === undefined) {
       throw new AppError("INTERNAL", 500, "Missing source image for layout cell");
     }
-    const input = await sharp(sourcePath)
-      .rotate()
-      .resize({ width: cell.w, height: cell.h, fit: "cover", position: "centre" })
-      .png()
-      .toBuffer();
+    const input = await renderFitted(sourcePath, cell.w, cell.h);
     composites.push({ input, left: cell.x, top: cell.y });
   }
   const canvas = sharp({ create: { width: w, height: h, channels: 3, background: bg } }).composite(

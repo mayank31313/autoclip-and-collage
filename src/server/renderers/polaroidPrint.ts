@@ -1,10 +1,11 @@
 import sharp, { type OverlayOptions } from "sharp";
+import { framePieces } from "@/lib/planner/collage/polaroid/frame";
 import type { PolaroidItem } from "@/lib/schemas/polaroid";
+import { renderFitted } from "@/server/renderers/fitImage";
 
 const FRAME_COLOR = "#fbfaf4";
 const CAPTION_COLOR = "#2f3a52";
 const CAPTION_FONT = "Caveat";
-const SIDE_FRACTION = 0.065;
 /** Transparent padding around the card so its shadow and tape fit before rotation. */
 export const SPRITE_PAD_PX = 60;
 const SHADOW = { dx: 3, dy: 8, blur: 9, opacity: 0.38 };
@@ -60,14 +61,8 @@ function tapePlacement(item: PolaroidItem) {
 }
 
 async function renderCard(item: PolaroidItem, sourcePath: string, fontPath: string) {
-  const side = Math.round(item.w * SIDE_FRACTION);
-  const photoSize = item.w - 2 * side;
-  const stripH = item.h - side - photoSize;
-  const photo = await sharp(sourcePath)
-    .rotate()
-    .resize({ width: photoSize, height: photoSize, fit: "cover", position: "centre" })
-    .png()
-    .toBuffer();
+  const { side, strip, photoW, photoH } = framePieces(item.w, item.h);
+  const photo = await renderFitted(sourcePath, photoW, photoH);
   const layers: OverlayOptions[] = [{ input: photo, left: side, top: side }];
   if (item.caption.trim() !== "") {
     const { data, info } = await sharp({
@@ -77,16 +72,16 @@ async function renderCard(item: PolaroidItem, sourcePath: string, fontPath: stri
         fontfile: fontPath,
         rgba: true,
         align: "center",
-        width: photoSize,
-        height: Math.round(stripH * CAPTION_HEIGHT_FRACTION),
+        width: photoW,
+        height: Math.round(strip * CAPTION_HEIGHT_FRACTION),
       },
     })
       .png()
       .toBuffer({ resolveWithObject: true });
     layers.push({
       input: data,
-      left: side + Math.round((photoSize - info.width) / 2),
-      top: side + photoSize + Math.round((stripH - info.height) / 2),
+      left: side + Math.round((photoW - info.width) / 2),
+      top: side + photoH + Math.round((strip - info.height) / 2),
     });
   }
   return sharp({

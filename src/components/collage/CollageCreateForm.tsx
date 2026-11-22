@@ -21,10 +21,12 @@ import {
   type CollageFormValues,
 } from "@/features/collage/form";
 import { isTerminalStatus } from "@/features/collage/job";
+import { effectiveSlides } from "@/features/collage/polaroidForm";
 import type { CollageLimits } from "@/features/collage/limits";
 import { createSubmissionGuard } from "@/features/collage/submissionGuard";
 import { useJob } from "@/features/collage/useJob";
 import { useUpload } from "@/features/collage/useUpload";
+import { evenSlideCounts } from "@/lib/planner/collage/polaroid/slides";
 import type { JobResponse } from "@/lib/schemas/job";
 import type { CollageTemplateDefinition } from "@/lib/schemas/collageTemplate";
 
@@ -121,6 +123,10 @@ export function CollageCreateForm({ limits, templates, studioKey }: Props) {
       "captions",
       selected.map(() => ""),
     );
+    if (form.getValues("slideLayout") === "custom") {
+      const slides = effectiveSlides(form.getValues("slides"), selected.length);
+      form.setValue("imagesPerSlide", evenSlideCounts(selected.length, slides));
+    }
     if (!compatibleTemplates(templates, selected.length).includes(form.getValues("template"))) {
       form.setValue("template", "rectangular");
     }
@@ -295,12 +301,7 @@ export function CollageCreateForm({ limits, templates, studioKey }: Props) {
         {mode === "polaroid" ? (
           <PolaroidOptionsFields form={form} files={files} />
         ) : (
-          <CollageOptionsFields
-            form={form}
-            limits={limits}
-            templates={templates}
-            fileCount={files.length}
-          />
+          <CollageOptionsFields form={form} limits={limits} />
         )}
       </fieldset>
 
